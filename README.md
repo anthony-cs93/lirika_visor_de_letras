@@ -23,7 +23,7 @@ Sin ellas la sincronización en la nube no funciona.
    - `TURSO_DATABASE_URL`
    - `TURSO_AUTH_TOKEN`
    - `SITE_URL` (opcional, solo con dominio propio; por defecto usa el dominio de producción de Vercel)
-3. Despliega. Las rutas `/api/*` se sirven desde una función (`api/[...path].ts`) que reutiliza `app.ts`,
+3. Despliega. Cada ruta `/api/*` es una función (`api/health.ts`, `api/sync/*.ts`, `api/lyrics/*.ts`) que reutiliza `app.ts`,
    el mismo Express que usa el servidor local.
 
 ### Estructura relevante
@@ -32,6 +32,6 @@ Sin ellas la sincronización en la nube no funciona.
 | --- | --- |
 | `app.ts` | Rutas `/api` (sync con Turso, buscadores de letras) |
 | `server.ts` | Servidor local: Vite en desarrollo / `dist/` en producción local |
-| `api/[...path].ts` | Entrada serverless de Vercel |
+| `api/**` | Una función de Vercel por ruta, todas sobre `app.ts` |
 | `vercel.json` | Build, caché y cabeceras de seguridad |
 | `public/` | Favicon, íconos PWA, `og-image.png`, `manifest.webmanifest`, `robots.txt` |
