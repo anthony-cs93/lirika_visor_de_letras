@@ -20,7 +20,9 @@ import {
   Moon,
 } from 'lucide-react';
 import { Song, CloudSyncStatus } from '../types/song';
+import { parseLyricsToBlocks } from '../utils/lyricsParser';
 import { ConfirmDialog } from './ConfirmDialog';
+import { usePinGuard } from './PinGuard';
 import { FavBurst } from './FavBurst';
 import { randomFavMessage } from '../utils/favMessages';
 import {
@@ -53,6 +55,7 @@ export function SongList({
   const [songs, setSongs] = useState<Song[]>(getLocalSongs());
   const [searchQuery, setSearchQuery] = useState('');
   const [pendingDelete, setPendingDelete] = useState<Song | null>(null);
+  const { guard, pinDialog } = usePinGuard();
   // Message floating above the heart that was just pressed (n makes each press a fresh animation)
   const [burst, setBurst] = useState<{ id: string; text: string; n: number } | null>(null);
   const burstTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -153,7 +156,7 @@ export function SongList({
   const handleDeleteSong = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     const target = songs.find((x) => x.id === id);
-    if (target) setPendingDelete(target);
+    if (target) guard(() => setPendingDelete(target));
   };
 
   const handleToggleFav = (e: React.MouseEvent, id: string) => {
@@ -193,6 +196,7 @@ export function SongList({
 
   return (
     <div className="relative flex flex-col h-full text-[color:var(--ink)] overflow-hidden bg-[color:var(--page)]">
+      {pinDialog}
       <ConfirmDialog
         open={!!pendingDelete}
         tone="danger"
@@ -396,10 +400,9 @@ export function SongList({
             </div>
           ) : filteredSongs.length > 0 ? (
             filteredSongs.map((song) => {
-              const hasChorus = /\[?(coro|chorus|estribillo)\]?/i.test(song.lyrics);
+              const sectionCount = parseLyricsToBlocks(song.lyrics).length;
               const meta = [
                 song.key ? `Tono ${song.key}` : '',
-                hasChorus ? 'Con coro' : '',
                 song.source === 'upload' ? 'Subida' : '',
               ]
                 .filter(Boolean)
@@ -423,6 +426,12 @@ export function SongList({
                     {meta && <p className="text-[11px] opacity-50 mt-0.5 truncate">{meta}</p>}
                   </div>
                   <div className="flex items-center shrink-0">
+                    <span
+                      className="mr-1 px-2 py-0.5 rounded-full text-[10px] font-semibold tabular-nums bg-white/[0.06] border border-white/[0.08] text-[color:var(--ink)]/55"
+                      title={`${sectionCount} ${sectionCount === 1 ? 'sección' : 'secciones'}`}
+                    >
+                      {sectionCount} secc.
+                    </span>
                     <button
                       onClick={(e) => handleToggleFav(e, song.id)}
                       className={`relative w-9 h-9 rounded-full flex items-center justify-center transition-colors ${

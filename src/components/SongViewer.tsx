@@ -49,6 +49,7 @@ import {
 } from '../utils/theme';
 import { toggleFavoriteSong } from '../utils/storage';
 import { FavBurst } from './FavBurst';
+import { usePinGuard } from './PinGuard';
 import { randomFavMessage } from '../utils/favMessages';
 
 type Panel = 'aa' | 'align' | 'speed' | null;
@@ -66,6 +67,7 @@ export function SongViewer({
   onBack,
   onEdit,
 }: SongViewerProps) {
+  const { guard, pinDialog } = usePinGuard();
   // Two Lyrics Display Modes: 'standard' (Actual con sombra) vs 'live' (Modo Live estilo Spotify)
   const [displayMode, setDisplayMode] = useState<LyricsDisplayMode>(
     song.customStyle?.displayMode || 'standard'
@@ -183,6 +185,18 @@ export function SongViewer({
     slideDirRef.current === 1
       ? 'animate-[slideFromBottom_0.42s_cubic-bezier(0.2,0.9,0.3,1)]'
       : 'animate-[slideFromTop_0.42s_cubic-bezier(0.2,0.9,0.3,1)]';
+
+  // Keep the active section chip visible in the chips row (card tap -> chip, mirrors chip tap -> card)
+  const chipsRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const row = chipsRef.current;
+    const chip = row?.querySelector<HTMLElement>(`[data-chip="${currentBlockIndex}"]`);
+    if (!row || !chip) return;
+    const c = chip.getBoundingClientRect();
+    const r = row.getBoundingClientRect();
+    const left = row.scrollLeft + (c.left - r.left) - (r.width - c.width) / 2;
+    row.scrollTo({ left: Math.max(0, left), behavior: 'smooth' });
+  }, [currentBlockIndex]);
 
   const jumpToBlock = (bIndex: number) => {
     const clampedIndex = Math.max(0, Math.min(blocks.length - 1, bIndex));
@@ -372,6 +386,7 @@ export function SongViewer({
 
   return (
     <div className="relative flex flex-col h-full select-none overflow-hidden bg-[color:var(--page)] text-[color:var(--ink)]">
+      {pinDialog}
       {/* Aurora background */}
       <div className="pointer-events-none absolute -left-28 -top-16 w-[340px] h-[340px] rounded-full opacity-[0.18] blur-[80px] bg-[oklch(0.72_0.15_70)]" />
       <div className="pointer-events-none absolute -right-36 top-[300px] w-[360px] h-[360px] rounded-full opacity-[0.26] blur-[90px] bg-[oklch(0.62_0.17_300)]" />
@@ -399,8 +414,8 @@ export function SongViewer({
             <ChevronLeft className="w-6 h-6" />
           </button>
           <div className="flex-1 min-w-0 text-center">
-            <div className="text-[15px] font-extrabold truncate">{song.title}</div>
-            <div className="text-xs opacity-60 truncate">{song.artist}</div>
+            <div className="text-[22.5px] leading-tight font-extrabold truncate">{song.title}</div>
+            <div className="text-[18px] leading-tight opacity-60 truncate">{song.artist}</div>
           </div>
           <button
             onClick={handleToggleFav}
@@ -427,11 +442,10 @@ export function SongViewer({
             </button>
             <button
               onClick={() => setDisplayMode('live')}
-              className={`flex items-center gap-1.5 px-5 py-2 rounded-full text-[13px] font-extrabold transition-all ${
+              className={`px-5 py-2 rounded-full text-[13px] font-extrabold transition-all ${
                 isLive ? AMBER : ''
               }`}
             >
-              <span className="w-1.5 h-1.5 rounded-full bg-[oklch(0.65_0.22_25)]" />
               Live
             </button>
           </div>
@@ -439,12 +453,13 @@ export function SongViewer({
 
         {/* Section chips */}
         {sectionMarks.length > 0 && (
-          <div className="flex gap-2 px-4 pt-3.5 overflow-x-auto no-scrollbar shrink-0">
+          <div ref={chipsRef} className="flex gap-2 px-4 pt-3.5 overflow-x-auto no-scrollbar shrink-0">
             {sectionMarks.map((sec, sIdx) => {
               const isCurrent = currentBlockIndex === sec.blockIndex;
               return (
                 <button
                   key={sIdx}
+                  data-chip={sec.blockIndex}
                   onClick={() => jumpToBlock(sec.blockIndex)}
                   title={sec.label}
                   className={`shrink-0 whitespace-nowrap px-3.5 py-1.5 rounded-full text-xs font-bold border transition-all ${
@@ -806,7 +821,7 @@ export function SongViewer({
               <Gauge className="w-[18px] h-[18px]" />
             </button>
             <button
-              onClick={() => onEdit(song)}
+              onClick={() => guard(() => onEdit(song))}
               className="w-10 h-10 rounded-full bg-white/[0.09] flex items-center justify-center active:scale-90 transition-transform"
               title="Editar letra"
             >
