@@ -1,5 +1,7 @@
-.env*
-.aistudio
-.playwright-mcp
-data
-metadata.json
+# Anchored with "/" so they only match the project root (a bare "data" would also remove src/data)
+/.env*
+/.aistudio
+/.playwright-mcp
+/.claude
+/data
+/metadata.json
