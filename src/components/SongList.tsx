@@ -423,15 +423,17 @@ export function SongList({
                   <div className="min-w-0 flex-1">
                     <h3 className="font-bold text-[15px] leading-tight tracking-tight truncate">{song.title}</h3>
                     <p className="text-xs opacity-60 truncate mt-px">{song.artist}</p>
-                    {meta && <p className="text-[11px] opacity-50 mt-0.5 truncate">{meta}</p>}
+                    <div className="flex items-center gap-1.5 mt-1 min-w-0">
+                      <span
+                        className="shrink-0 px-2 py-px rounded-full text-[10px] font-semibold tabular-nums bg-white/[0.06] border border-white/[0.08] text-[color:var(--ink)]/55"
+                        title={`${sectionCount} ${sectionCount === 1 ? 'sección' : 'secciones'}`}
+                      >
+                        {sectionCount} secc.
+                      </span>
+                      {meta && <span className="text-[11px] opacity-50 truncate">{meta}</span>}
+                    </div>
                   </div>
                   <div className="flex items-center shrink-0">
-                    <span
-                      className="mr-1 px-2 py-0.5 rounded-full text-[10px] font-semibold tabular-nums bg-white/[0.06] border border-white/[0.08] text-[color:var(--ink)]/55"
-                      title={`${sectionCount} ${sectionCount === 1 ? 'sección' : 'secciones'}`}
-                    >
-                      {sectionCount} secc.
-                    </span>
                     <button
                       onClick={(e) => handleToggleFav(e, song.id)}
                       className={`relative w-9 h-9 rounded-full flex items-center justify-center transition-colors ${
