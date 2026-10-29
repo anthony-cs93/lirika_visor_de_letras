@@ -2,11 +2,11 @@ import { SongBlock, SectionType, SectionMark } from '../types/song';
 
 export const SECTION_DEFINITIONS: { type: SectionType; label: string; badge: string }[] = [
   { type: 'intro', label: 'Intro', badge: 'Intro' },
-  { type: 'interlude', label: 'Interludio', badge: 'Interludio' },
   { type: 'verse', label: 'Verso', badge: 'Verso' },
   { type: 'prechorus', label: 'Pre-Coro', badge: 'Pre-Coro' },
   { type: 'chorus', label: 'Coro', badge: 'Coro' },
   { type: 'bridge', label: 'Puente', badge: 'Puente' },
+  { type: 'interlude', label: 'Interludio', badge: 'Interludio' },
   { type: 'solo', label: 'Instrumental', badge: 'Solo' },
   { type: 'outro', label: 'Outro', badge: 'Final' },
 ];
