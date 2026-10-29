@@ -61,7 +61,7 @@ export function SongEditor({ song, onBack, onSaved }: SongEditorProps) {
   const [notice, setNotice] = useState<{ title: string; message: string } | null>(null);
   const [pendingRemove, setPendingRemove] = useState<number | null>(null);
   // Section picker popover (which block + which type is open)
-  const [picker, setPicker] = useState<{ idx: number; type: SectionType } | null>(null);
+  const [picker, setPicker] = useState<{ idx: number; type: SectionType; alignRight: boolean } | null>(null);
 
   // Stanza Blocks representation
   const [blocks, setBlocks] = useState<SongBlock[]>(() => {
@@ -644,14 +644,16 @@ export function SongEditor({ song, onBack, onSaved }: SongEditorProps) {
                         const variants = SECTION_VARIANTS[def.type];
                         const isOpen = picker?.idx === idx && picker.type === def.type;
                         return (
-                          <div key={def.type}>
+                          <div key={def.type} className="relative">
                             <button
                               type="button"
-                              onClick={() =>
-                                variants
-                                  ? setPicker(isOpen ? null : { idx, type: def.type })
-                                  : handleSetSection(idx, def.type, def.label)
-                              }
+                              onClick={(e) => {
+                                if (!variants) return handleSetSection(idx, def.type, def.label);
+                                const r = e.currentTarget.getBoundingClientRect();
+                                setPicker(
+                                  isOpen ? null : { idx, type: def.type, alignRight: r.left > window.innerWidth / 2 }
+                                );
+                              }}
                               className={`px-2.5 py-0.5 rounded-full text-xs font-semibold transition-all ${
                                 isSelected
                                   ? 'bg-amber-400 text-zinc-950 font-bold shadow-xs'
@@ -664,7 +666,7 @@ export function SongEditor({ song, onBack, onSaved }: SongEditorProps) {
                             {isOpen && variants && (
                               <>
                                 <div className="fixed inset-0 z-20" onClick={() => setPicker(null)} />
-                                <div className="absolute left-3.5 top-full mt-1.5 z-30 flex gap-1 p-1.5 rounded-2xl bg-[color:var(--sheet)] border border-white/15 backdrop-blur-2xl shadow-xl">
+                                <div className={`absolute ${picker?.alignRight ? 'right-0' : 'left-0'} top-full mt-1.5 z-30 flex gap-1 p-1.5 rounded-2xl bg-[color:var(--sheet)] border border-white/15 backdrop-blur-2xl shadow-xl`}>
                                   {Array.from({ length: variants.count + 1 }, (_, i) => i).map((n) => {
                                     const label = n === 0 ? variants.name : `${variants.name} ${n}`;
                                     const active = isSelected && block.sectionLabel === label;
