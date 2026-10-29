@@ -405,21 +405,21 @@ export function SongViewer({
 
       <div className="relative z-10 flex flex-col h-full">
         {/* Header */}
-        <div className="flex items-center gap-2.5 px-4 pt-9 shrink-0">
+        <div className={`flex items-center gap-2.5 px-4 shrink-0 ${isLive ? 'pt-4' : 'pt-9'}`}>
           <button
             onClick={onBack}
-            className={`w-[42px] h-[42px] rounded-full flex items-center justify-center shrink-0 hover:bg-white/15 ${GLASS}`}
+            className={`${isLive ? 'w-9 h-9' : 'w-[42px] h-[42px]'} rounded-full flex items-center justify-center shrink-0 hover:bg-white/15 ${GLASS}`}
             title="Volver"
           >
             <ChevronLeft className="w-6 h-6" />
           </button>
           <div className="flex-1 min-w-0 text-center">
-            <div className="text-[22.5px] leading-tight font-extrabold truncate">{song.title}</div>
-            <div className="text-[18px] leading-tight opacity-60 truncate">{song.artist}</div>
+            <div className={`${isLive ? 'text-[15px]' : 'text-[22.5px]'} leading-tight font-extrabold truncate`}>{song.title}</div>
+            <div className={`${isLive ? 'text-xs' : 'text-[18px]'} leading-tight opacity-60 truncate`}>{song.artist}</div>
           </div>
           <button
             onClick={handleToggleFav}
-            className={`relative w-[42px] h-[42px] rounded-full flex items-center justify-center shrink-0 hover:bg-white/15 ${GLASS} ${
+            className={`relative ${isLive ? 'w-9 h-9' : 'w-[42px] h-[42px]'} rounded-full flex items-center justify-center shrink-0 hover:bg-white/15 ${GLASS} ${
               isFav ? 'text-[oklch(0.75_0.17_10)]' : ''
             }`}
             title="Favorito"
@@ -430,11 +430,11 @@ export function SongViewer({
         </div>
 
         {/* Mode switch */}
-        <div className="flex justify-center pt-3.5 shrink-0">
-          <div className={`flex p-1 rounded-full ${GLASS}`}>
+        <div className={`flex justify-center shrink-0 ${isLive ? 'pt-2' : 'pt-3.5'}`}>
+          <div className={`flex rounded-full ${isLive ? 'p-0.5' : 'p-1'} ${GLASS}`}>
             <button
               onClick={() => setDisplayMode('standard')}
-              className={`px-5 py-2 rounded-full text-[13px] font-extrabold transition-all ${
+              className={`${isLive ? 'px-3.5 py-1 text-[11px]' : 'px-5 py-2 text-[13px]'} rounded-full font-extrabold transition-all ${
                 !isLive ? AMBER : ''
               }`}
             >
@@ -442,7 +442,7 @@ export function SongViewer({
             </button>
             <button
               onClick={() => setDisplayMode('live')}
-              className={`px-5 py-2 rounded-full text-[13px] font-extrabold transition-all ${
+              className={`${isLive ? 'px-3.5 py-1 text-[11px]' : 'px-5 py-2 text-[13px]'} rounded-full font-extrabold transition-all ${
                 isLive ? AMBER : ''
               }`}
             >
@@ -453,7 +453,7 @@ export function SongViewer({
 
         {/* Section chips */}
         {sectionMarks.length > 0 && (
-          <div ref={chipsRef} className="flex gap-2 px-4 pt-3.5 overflow-x-auto no-scrollbar shrink-0">
+          <div ref={chipsRef} className={`flex gap-2 px-4 overflow-x-auto no-scrollbar shrink-0 ${isLive ? 'pt-2' : 'pt-3.5'}`}>
             {sectionMarks.map((sec, sIdx) => {
               const isCurrent = currentBlockIndex === sec.blockIndex;
               return (
@@ -478,7 +478,7 @@ export function SongViewer({
         {/* Lyrics */}
         {isLive ? (
           <div
-            className="flex-1 flex flex-col justify-center gap-[18px] px-5 pb-36 overflow-y-auto no-scrollbar"
+            className="flex-1 flex flex-col justify-center gap-[18px] px-5 pb-24 overflow-y-auto no-scrollbar"
             onTouchStart={handleTouchStart}
             onTouchEnd={handleTouchEnd}
           >
@@ -596,7 +596,7 @@ export function SongViewer({
 
         {/* Floating section navigation (outside the dock) */}
         <div
-          className={`absolute right-3.5 bottom-[118px] z-10 flex flex-col gap-1.5 p-1.5 rounded-full ${DOCK} ring-1 ring-[oklch(0.82_0.14_75_/_0.45)] transition-all duration-200 ${
+          className={`absolute right-3.5 ${isLive ? 'bottom-[84px]' : 'bottom-[118px]'} z-10 flex flex-col gap-1.5 p-1.5 rounded-full ${DOCK} ring-1 ring-[oklch(0.82_0.14_75_/_0.45)] transition-all duration-200 ${
             panel ? 'opacity-0 pointer-events-none translate-y-2' : ''
           }`}
         >
@@ -609,9 +609,9 @@ export function SongViewer({
               onClick={onClick}
               disabled={disabled}
               title={title}
-              className={`w-[52px] h-[52px] rounded-full flex items-center justify-center transition-all active:scale-90 ${AMBER} shadow-[0_6px_18px_oklch(0.72_0.15_70_/_0.45)] disabled:opacity-30 disabled:shadow-none disabled:grayscale`}
+              className={`${isLive ? 'w-10 h-10' : 'w-[52px] h-[52px]'} rounded-full flex items-center justify-center transition-all active:scale-90 ${AMBER} shadow-[0_6px_18px_oklch(0.72_0.15_70_/_0.45)] disabled:opacity-30 disabled:shadow-none disabled:grayscale`}
             >
-              <Icon className="w-7 h-7" strokeWidth={3.2} />
+              <Icon className={isLive ? 'w-6 h-6' : 'w-7 h-7'} strokeWidth={3.2} />
             </button>
           ))}
         </div>
@@ -621,7 +621,7 @@ export function SongViewer({
           <div
             key={panel}
             ref={panelRef}
-            className="absolute left-3.5 right-3.5 bottom-[118px] z-20 p-[18px] rounded-[28px] bg-[color:var(--sheet)] border border-white/[0.18] backdrop-blur-3xl shadow-[0_20px_60px_rgba(0,0,0,0.5)] flex flex-col gap-3.5 max-h-[55%] overflow-y-auto no-scrollbar animate-[sheetIn_0.22s_cubic-bezier(0.2,0.9,0.3,1)]"
+            className={`absolute left-3.5 right-3.5 ${isLive ? 'bottom-[84px]' : 'bottom-[118px]'} z-20 p-[18px] rounded-[28px] bg-[color:var(--sheet)] border border-white/[0.18] backdrop-blur-3xl shadow-[0_20px_60px_rgba(0,0,0,0.5)] flex flex-col gap-3.5 max-h-[55%] overflow-y-auto no-scrollbar animate-[sheetIn_0.22s_cubic-bezier(0.2,0.9,0.3,1)]`}
           >
             {panel === 'aa' && (
               <>
@@ -772,7 +772,7 @@ export function SongViewer({
         {/* Dock */}
         <div
           ref={dockRef}
-          className={`absolute left-3.5 right-3.5 bottom-6 h-[84px] rounded-full px-3 z-10 grid grid-cols-[1fr_auto_1fr] items-center ${DOCK}`}
+          className={`absolute left-3.5 right-3.5 ${isLive ? 'bottom-3 h-[58px]' : 'bottom-6 h-[84px]'} rounded-full px-3 z-10 grid grid-cols-[1fr_auto_1fr] items-center ${DOCK}`}
         >
           <div className="flex items-center justify-evenly">
             {(
@@ -785,7 +785,7 @@ export function SongViewer({
                 key={id}
                 onClick={() => togglePanel(id)}
                 title={title}
-                className={`w-10 h-10 rounded-full flex items-center justify-center text-[15px] font-extrabold transition-all duration-150 active:scale-90 ${
+                className={`${isLive ? 'w-8 h-8' : 'w-10 h-10'} rounded-full flex items-center justify-center text-[15px] font-extrabold transition-all duration-150 active:scale-90 ${
                   panel === id ? `${AMBER} animate-[pop_0.28s_ease-out]` : 'bg-white/[0.09]'
                 }`}
               >
@@ -804,7 +804,7 @@ export function SongViewer({
 
           <button
             onClick={startWithCountdown}
-            className={`mx-1 w-[62px] h-[62px] rounded-full flex items-center justify-center shadow-[0_8px_28px_oklch(0.72_0.15_70_/_0.5)] active:scale-95 transition-transform ${AMBER}`}
+            className={`mx-1 ${isLive ? 'w-11 h-11' : 'w-[62px] h-[62px]'} rounded-full flex items-center justify-center shadow-[0_8px_28px_oklch(0.72_0.15_70_/_0.5)] active:scale-95 transition-transform ${AMBER}`}
             title={isScrolling ? 'Pausar auto-avance' : 'Auto-avance'}
           >
             {isScrolling ? <Pause className="w-6 h-6 fill-current" /> : <Play className="w-6 h-6 fill-current" />}
@@ -814,7 +814,7 @@ export function SongViewer({
             <button
               onClick={() => togglePanel('speed')}
               title="Velocidad del scroll"
-              className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-150 active:scale-90 ${
+              className={`${isLive ? 'w-8 h-8' : 'w-10 h-10'} rounded-full flex items-center justify-center transition-all duration-150 active:scale-90 ${
                 panel === 'speed' ? `${AMBER} animate-[pop_0.28s_ease-out]` : 'bg-white/[0.09]'
               }`}
             >
@@ -822,7 +822,7 @@ export function SongViewer({
             </button>
             <button
               onClick={() => guard(() => onEdit(song))}
-              className="w-10 h-10 rounded-full bg-white/[0.09] flex items-center justify-center active:scale-90 transition-transform"
+              className={`${isLive ? 'w-8 h-8' : 'w-10 h-10'} rounded-full bg-white/[0.09] flex items-center justify-center active:scale-90 transition-transform`}
               title="Editar letra"
             >
               <Edit3 className="w-[18px] h-[18px]" />
