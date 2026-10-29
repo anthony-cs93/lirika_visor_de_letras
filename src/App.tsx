@@ -61,7 +61,7 @@ export default function App() {
   };
 
   return (
-    <div className={`w-full h-screen bg-zinc-950 font-sans antialiased text-zinc-100 flex flex-col justify-center items-center overflow-hidden ${isLight ? 'light' : ''}`}>
+    <div className={`w-full app-height bg-zinc-950 font-sans antialiased text-zinc-100 flex flex-col justify-center items-center overflow-hidden ${isLight ? 'light' : ''}`}>
       {/* App Container - Responsive Mobile-first canvas that expands cleanly */}
       <main className="w-full h-full max-w-2xl bg-zinc-950 flex flex-col relative shadow-2xl border-x border-zinc-800/60 overflow-hidden">
         {currentView === 'list' && (

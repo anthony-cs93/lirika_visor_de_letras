@@ -65,3 +65,9 @@
   60% { opacity: 1; }
   100% { opacity: 0; transform: translateY(-30px) scale(1); }
 }
+
+/* Full visible height on mobile: 100vh ignores the browser's address bar, 100dvh follows it. */
+.app-height {
+  height: 100vh;
+  height: 100dvh;
+}
