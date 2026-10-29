@@ -1,0 +1,67 @@
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap");
+@import "tailwindcss";
+
+
+
+@theme {
+  --font-sans: 'Manrope', system-ui, sans-serif;
+}
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+
+:root {
+  --ink: #f4f2ee;
+  --page: #0b0b10;
+  --dock: rgba(20, 20, 26, 0.55);
+  --sheet: rgba(24, 24, 32, 0.7);
+}
+
+/* Light mode: Tailwind v4 builds opacity utilities from these variables, so swapping them re-themes everything. */
+.light {
+  --ink: #1c1917;
+  --page: #f6f2ea;
+  --dock: rgba(255, 255, 255, 0.65);
+  --sheet: rgba(255, 255, 255, 0.85);
+  --color-white: #1c1917;
+  --color-black: #ffffff;
+  --color-zinc-200: #292524;
+  --color-zinc-300: #44403c;
+  --color-zinc-400: #57534e;
+  --color-zinc-500: #78716c;
+  --color-zinc-600: #a8a29e;
+  --color-amber-300: #b45309;
+  --color-amber-400: #b45309;
+  color-scheme: light;
+}
+.light .text-\[oklch\(0\.85_0\.13_75\)\],
+.light .text-\[oklch\(0\.82_0\.14_75\)\] {
+  color: #a35a06;
+}
+.light .opacity-50 { opacity: 0.72; }
+
+@keyframes sheetIn {
+  from { opacity: 0; transform: translateY(14px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes pop {
+  0% { transform: scale(1); }
+  40% { transform: scale(0.82); }
+  100% { transform: scale(1); }
+}
+
+@keyframes slideFromBottom {
+  from { opacity: 0; transform: translateY(46px); }
+}
+@keyframes slideFromTop {
+  from { opacity: 0; transform: translateY(-46px); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+}
+@keyframes floatUp {
+  0% { opacity: 0; transform: translateY(8px) scale(0.94); }
+  18% { opacity: 1; transform: translateY(0) scale(1); }
+  60% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-30px) scale(1); }
+}

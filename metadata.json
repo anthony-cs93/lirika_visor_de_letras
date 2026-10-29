@@ -1,0 +1,6 @@
+{
+  "name": "Lirika - Lector & Editor de Letras",
+  "description": "App móvil minimalista para leer y editar letras de canciones con buscador, teleprompter auto-scroll, 3 modos de lectura y sincronización offline y nube.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

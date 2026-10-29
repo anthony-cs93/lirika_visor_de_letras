@@ -1,0 +1,5 @@
+.env*
+.aistudio
+.playwright-mcp
+data
+metadata.json
