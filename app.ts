@@ -82,8 +82,26 @@ const dbReady = initDb();
 dbReady.catch((err) => console.error('Turso init failed:', err));
 
 // API: Healthcheck
-app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', time: new Date().toISOString() });
+// Reports whether the Turso database is configured and reachable (never returns secrets).
+app.get('/api/health', async (_req, res) => {
+  const url = process.env.TURSO_DATABASE_URL || '';
+  const database: { configured: boolean; reachable: boolean; songs?: number; error?: string } = {
+    configured: Boolean(url) && (Boolean(process.env.TURSO_AUTH_TOKEN) || url.startsWith('file:')),
+    reachable: false,
+  };
+  try {
+    await dbReady;
+    const { rows } = await db.execute('SELECT COUNT(*) AS n FROM songs WHERE deleted_at IS NULL');
+    database.reachable = true;
+    database.songs = Number(rows[0].n);
+  } catch (err: any) {
+    database.error = String(err?.message || err).slice(0, 160);
+  }
+  res.status(database.reachable ? 200 : 503).json({
+    status: database.reachable ? 'ok' : 'degraded',
+    database,
+    time: new Date().toISOString(),
+  });
 });
 
 // API: Cloud sync pull
