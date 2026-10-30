@@ -648,7 +648,11 @@ export function SongEditor({ song, onBack, onSaved }: SongEditorProps) {
                             <button
                               type="button"
                               onClick={(e) => {
-                                if (!variants) return handleSetSection(idx, def.type, def.label);
+                                if (!variants) {
+                                  // Wildcard keeps the name the user already typed
+                                  const keep = def.type === 'custom' && isSelected && block.sectionLabel.trim();
+                                  return handleSetSection(idx, def.type, keep ? block.sectionLabel : def.label);
+                                }
                                 const r = e.currentTarget.getBoundingClientRect();
                                 setPicker(
                                   isOpen ? null : { idx, type: def.type, alignRight: r.left > window.innerWidth / 2 }
@@ -660,7 +664,7 @@ export function SongEditor({ song, onBack, onSaved }: SongEditorProps) {
                                   : 'bg-white/[0.06] hover:bg-white/10 text-zinc-300 border border-white/10'
                               }`}
                             >
-                              {isSelected && variants ? compactSectionLabel(block.sectionLabel) : def.badge}
+                              {isSelected && def.type === 'custom' ? compactSectionLabel(block.sectionLabel) : def.badge}
                             </button>
 
                             {isOpen && variants && (

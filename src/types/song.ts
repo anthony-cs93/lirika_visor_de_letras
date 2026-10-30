@@ -11,6 +11,7 @@ export type SectionType =
   | 'verse'
   | 'prechorus'
   | 'chorus'
+  | 'repeat'
   | 'bridge'
   | 'solo'
   | 'outro'

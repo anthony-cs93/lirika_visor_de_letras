@@ -5,10 +5,13 @@ export const SECTION_DEFINITIONS: { type: SectionType; label: string; badge: str
   { type: 'verse', label: 'Verso', badge: 'Verso' },
   { type: 'prechorus', label: 'Pre-Coro', badge: 'Pre-Coro' },
   { type: 'chorus', label: 'Coro', badge: 'Coro' },
+  { type: 'repeat', label: 'Repetición', badge: 'Rp' },
   { type: 'bridge', label: 'Puente', badge: 'Puente' },
   { type: 'interlude', label: 'Interludio', badge: 'Interludio' },
   { type: 'solo', label: 'Instrumental', badge: 'Solo' },
   { type: 'outro', label: 'Outro', badge: 'Final' },
+  // Wildcard: the visible name is free text and the badge shows its first letters
+  { type: 'custom', label: 'Otro', badge: 'Otro' },
 ];
 
 /**
@@ -25,7 +28,7 @@ export function stripChords(text: string): string {
     const trimmed = line.trim();
     if (!trimmed) return true;
     // Don't filter section headers like [Coro] or [Verso 1]
-    if (/^\[?(intro|interludio|verso|verse|coro|chorus|estribillo|pre-?coro|pre-?chorus|puente|bridge|solo|outro|final)/i.test(trimmed)) {
+    if (/^\[?(intro|interludio|verso|verse|coro|chorus|estribillo|pre-?coro|pre-?chorus|repetici[oó]n|puente|bridge|solo|outro|final)/i.test(trimmed)) {
       return true;
     }
     const words = trimmed.split(/\s+/);
@@ -61,6 +64,9 @@ export function detectSectionType(raw: string): { type: SectionType; cleanLabel:
   const lower = trimmed.toLowerCase();
 
   if (lower.startsWith('intro')) return { type: 'intro', cleanLabel: 'Intro' };
+  if (lower.startsWith('repetici') || lower.startsWith('repeat')) {
+    return { type: 'repeat', cleanLabel: trimmed || 'Repetición' };
+  }
   if (lower.startsWith('pre-coro') || lower.startsWith('precoro') || lower.startsWith('pre-chorus')) {
     return { type: 'prechorus', cleanLabel: trimmed || 'Pre-Coro' };
   }
@@ -108,10 +114,12 @@ export function parseLyricsToBlocks(lyrics: string): SongBlock[] {
     // Check if the first line is a section header like [Coro] or [Verso 1] or Coro:
     const firstLine = rawLines[0];
     const sectionMatch = firstLine.match(
-      /^\s*\[?(Intro|Interludio|Verso|Verse|Coro|Chorus|Estribillo|Pre-?coro|Pre-?chorus|Puente|Bridge|Solo|Instrumental|Outro|Final)[^\]:]*\]?:?\s*$/i
+      /^\s*\[?(Intro|Interludio|Verso|Verse|Coro|Chorus|Estribillo|Pre-?coro|Pre-?chorus|Repetici[oó]n|Repeat|Puente|Bridge|Solo|Instrumental|Outro|Final)[^\]:]*\]?:?\s*$/i
     );
+    // Any other fully bracketed first line, e.g. [Rap] or [Ministración], is a custom section header
+    const customMatch = !sectionMatch && rawLines.length > 1 ? firstLine.match(/^\s*\[([^\]]{1,40})\]\s*$/) : null;
 
-    if (sectionMatch) {
+    if (sectionMatch || customMatch) {
       const detected = detectSectionType(firstLine);
       sectionType = detected.type;
       sectionLabel = detected.cleanLabel;
@@ -178,6 +186,7 @@ const COMPACT_PREFIX: Record<SectionType, string> = {
   verse: 'V',
   prechorus: 'Pr',
   chorus: 'C',
+  repeat: 'Rp',
   bridge: 'P',
   solo: 'S',
   outro: 'O',
@@ -193,5 +202,8 @@ export function compactSectionLabel(label: string): string {
   const num = label.trim().match(/(\d+)\s*$/)?.[1] ?? '';
   const prefix = COMPACT_PREFIX[type];
   if (prefix) return prefix + num;
-  return label.trim().slice(0, 3).toUpperCase();
+  // Free-text names: first 3 letters, first one capitalized ("ministración" -> "Min", "Rap" -> "Rap")
+  const t = label.trim();
+  if (t.toLowerCase() === 'otro') return 'Otro';
+  return t.charAt(0).toUpperCase() + t.slice(1, 3);
 }
