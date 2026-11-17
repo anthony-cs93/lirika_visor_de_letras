@@ -340,6 +340,9 @@ export function setupAuth(app: express.Express, db: Client) {
       if (req.params.id === req.user!.id) return res.status(400).json({ error: 'No puedes eliminar tu propia cuenta' });
       const target = await findUserById(req.params.id);
       if (!target) return res.status(404).json({ error: 'Cuenta no encontrada' });
+      if (GUEST_USERNAME && target.username === GUEST_USERNAME) {
+        return res.status(400).json({ error: 'La cuenta compartida no se puede eliminar' });
+      }
       await db.execute({ sql: 'DELETE FROM users WHERE id = ?', args: [req.params.id] });
       res.json({ success: true });
     } catch (err) {

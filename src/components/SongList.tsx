@@ -18,11 +18,13 @@ import {
   FileText,
   Sun,
   Moon,
+  ShieldCheck,
 } from 'lucide-react';
 import { Song, CloudSyncStatus } from '../types/song';
 import { parseLyricsToBlocks } from '../utils/lyricsParser';
 import { ConfirmDialog } from './ConfirmDialog';
 import { usePinGuard } from './PinGuard';
+import { useAuth } from './AuthGate';
 import { FavBurst } from './FavBurst';
 import { randomFavMessage } from '../utils/favMessages';
 import {
@@ -41,6 +43,7 @@ interface SongListProps {
   onNewSong: () => void;
   onOpenUpload: () => void;
   onOpenSettings: () => void;
+  onOpenAdmin: () => void;
   isLight: boolean;
   onToggleTheme: () => void;
 }
@@ -50,6 +53,7 @@ export function SongList({
   onNewSong,
   onOpenUpload,
   onOpenSettings,
+  onOpenAdmin,
   isLight,
   onToggleTheme,
 }: SongListProps) {
@@ -57,6 +61,7 @@ export function SongList({
   const [searchQuery, setSearchQuery] = useState('');
   const [pendingDelete, setPendingDelete] = useState<Song | null>(null);
   const { guard, pinDialog } = usePinGuard();
+  const { user } = useAuth();
   // Message floating above the heart that was just pressed (n makes each press a fresh animation)
   const [burst, setBurst] = useState<{ id: string; text: string; n: number } | null>(null);
   const burstTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -245,6 +250,15 @@ export function SongList({
           >
             {isLight ? <Moon className="w-[18px] h-[18px]" /> : <Sun className="w-[18px] h-[18px]" />}
           </button>
+          {user.role === 'admin' && (
+            <button
+              onClick={onOpenAdmin}
+              className={`w-11 h-11 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors ${GLASS}`}
+              title="Panel de administración"
+            >
+              <ShieldCheck className="w-[18px] h-[18px]" />
+            </button>
+          )}
           <button
             onClick={onOpenSettings}
             className={`w-11 h-11 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors ${GLASS}`}

@@ -15,12 +15,10 @@ import {
   Info,
   RotateCcw,
   LogOut,
-  ShieldCheck,
   KeyRound,
 } from 'lucide-react';
 import { CloudSyncStatus, ThemeMode } from '../types/song';
 import { ConfirmDialog } from './ConfirmDialog';
-import { AdminPanel } from './AdminPanel';
 import { useAuth } from './AuthGate';
 import { authApi } from '../utils/auth';
 import {
@@ -52,7 +50,6 @@ export function SettingsModal({ isOpen, onClose, onRefresh }: SettingsModalProps
   const [confirmReset, setConfirmReset] = useState(false);
 
   const { user, logout } = useAuth();
-  const [showAdmin, setShowAdmin] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -137,7 +134,6 @@ export function SettingsModal({ isOpen, onClose, onRefresh }: SettingsModalProps
           },
         ]}
       />
-      {showAdmin && <AdminPanel onClose={() => setShowAdmin(false)} />}
       <div className="w-full max-w-lg bg-white/[0.06] backdrop-blur-xl border border-white/10 text-[color:var(--ink)] rounded-2xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/10 shrink-0">
@@ -177,7 +173,7 @@ export function SettingsModal({ isOpen, onClose, onRefresh }: SettingsModalProps
                 <span>Cerrar sesión</span>
               </button>
             </div>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 gap-2">
               <button
                 onClick={() => setShowPassword((v) => !v)}
                 className="flex items-center justify-center gap-2 px-3 py-2 bg-black/25 hover:bg-white/10 border border-white/10 rounded-3xl text-xs font-medium text-zinc-200 transition-colors"
@@ -185,15 +181,6 @@ export function SettingsModal({ isOpen, onClose, onRefresh }: SettingsModalProps
                 <KeyRound className="w-4 h-4 text-amber-400" />
                 <span>Cambiar contraseña</span>
               </button>
-              {user.role === 'admin' && (
-                <button
-                  onClick={() => setShowAdmin(true)}
-                  className="flex items-center justify-center gap-2 px-3 py-2 bg-black/25 hover:bg-white/10 border border-white/10 rounded-3xl text-xs font-medium text-zinc-200 transition-colors"
-                >
-                  <ShieldCheck className="w-4 h-4 text-amber-400" />
-                  <span>Panel de administración</span>
-                </button>
-              )}
             </div>
             {showPassword && (
               <form onSubmit={handleChangePassword} className="space-y-2">

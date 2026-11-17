@@ -5,10 +5,12 @@ import { SongViewer } from './components/SongViewer';
 import { SongEditor } from './components/SongEditor';
 import { LyricsSearchModal } from './components/LyricsSearchModal';
 import { SettingsModal } from './components/SettingsModal';
+import { AdminPanel } from './components/AdminPanel';
+import { useAuth } from './components/AuthGate';
 import { getPreferences, savePreferences } from './utils/storage';
 
 type AppView = 'list' | 'viewer' | 'editor';
-type ModalKind = 'search' | 'settings';
+type ModalKind = 'search' | 'settings' | 'admin';
 
 // Every screen/modal the user opens is a browser-history entry, so the system back
 // gesture/button closes it. Entry 0 is a sentinel ('exit') that triggers the leave confirmation.
@@ -27,6 +29,8 @@ export default function App() {
   // Modals
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isAdminOpen, setIsAdminOpen] = useState(false);
+  const { user } = useAuth();
 
   // User default preferences
   const [userPrefs, setUserPrefs] = useState(getPreferences());
@@ -51,6 +55,7 @@ export default function App() {
     setCurrentView(view);
     setIsUploadOpen(modal === 'search');
     setIsSettingsOpen(modal === 'settings');
+    setIsAdminOpen(modal === 'admin');
   };
 
   const pushNav = (view: AppView, modal?: ModalKind) => {
@@ -191,6 +196,7 @@ export default function App() {
             onNewSong={handleNewSong}
             onOpenUpload={() => pushNav('list', 'search')}
             onOpenSettings={() => pushNav('list', 'settings')}
+            onOpenAdmin={() => pushNav('list', 'admin')}
             isLight={isLight}
             onToggleTheme={toggleTheme}
           />
@@ -234,6 +240,8 @@ export default function App() {
             setUserPrefs(getPreferences());
           }}
         />
+
+        {isAdminOpen && user.role === 'admin' && <AdminPanel onClose={closeModal} />}
 
         {showExitConfirm && (
           <div className="absolute inset-0 z-[70] flex items-center justify-center p-6 bg-black/60 backdrop-blur-md">
