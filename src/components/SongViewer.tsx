@@ -49,7 +49,8 @@ import {
   getTextTransformClass,
 } from '../utils/theme';
 import { toggleFavoriteSong } from '../utils/storage';
-import { shareSongOnWhatsApp } from '../utils/share';
+import { shareSong, copySongText, hasSystemShare } from '../utils/share';
+import { ConfirmDialog } from './ConfirmDialog';
 import { FavBurst } from './FavBurst';
 import { usePinGuard } from './PinGuard';
 import { randomFavMessage } from '../utils/favMessages';
@@ -80,6 +81,12 @@ export function SongViewer({
   onEdit,
 }: SongViewerProps) {
   const { guard, pinDialog } = usePinGuard();
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareToast, setShareToast] = useState<string | null>(null);
+  const showShareToast = (msg: string) => {
+    setShareToast(msg);
+    setTimeout(() => setShareToast(null), 2000);
+  };
   // Two Lyrics Display Modes: 'standard' (Actual con sombra) vs 'live' (Modo Live estilo Spotify)
   const [displayMode, setDisplayMode] = useState<LyricsDisplayMode>(
     song.customStyle?.displayMode || 'standard'
@@ -434,6 +441,39 @@ export function SongViewer({
   return (
     <div className="relative flex flex-col h-full select-none overflow-hidden bg-[color:var(--page)] text-[color:var(--ink)]">
       {pinDialog}
+
+      <ConfirmDialog
+        open={shareOpen}
+        icon={<Share2 className="w-6 h-6" />}
+        title="Compartir canción"
+        message={`"${song.title}" con todas sus secciones, en texto.`}
+        onClose={() => setShareOpen(false)}
+        actions={[
+          {
+            label: hasSystemShare() ? 'Compartir…' : 'Compartir por WhatsApp',
+            tone: 'primary',
+            onClick: () => {
+              setShareOpen(false);
+              shareSong(song);
+            },
+          },
+          {
+            label: 'Copiar texto',
+            tone: 'neutral',
+            onClick: async () => {
+              setShareOpen(false);
+              showShareToast((await copySongText(song)) ? 'Letra copiada ✓' : 'No se pudo copiar');
+            },
+          },
+          { label: 'Cancelar', tone: 'neutral', onClick: () => setShareOpen(false) },
+        ]}
+      />
+
+      {shareToast && (
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 z-[90] px-4 py-2 rounded-full bg-zinc-900/90 border border-white/20 backdrop-blur-xl text-[13px] font-bold shadow-xl">
+          {shareToast}
+        </div>
+      )}
       {/* Aurora background */}
       <div className="pointer-events-none absolute -left-28 -top-16 w-[340px] h-[340px] rounded-full opacity-[0.18] blur-[80px] bg-[oklch(0.72_0.15_70)]" />
       <div className="pointer-events-none absolute -right-36 top-[300px] w-[360px] h-[360px] rounded-full opacity-[0.26] blur-[90px] bg-[oklch(0.62_0.17_300)]" />
@@ -465,10 +505,10 @@ export function SongViewer({
             <div className={`text-xs leading-tight opacity-60 truncate`}>{song.artist}</div>
           </div>
           <button
-            onClick={() => shareSongOnWhatsApp(song)}
+            onClick={() => setShareOpen(true)}
             className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 hover:bg-white/15 ${GLASS}`}
-            title="Compartir por WhatsApp"
-            aria-label="Compartir por WhatsApp"
+            title="Compartir"
+            aria-label="Compartir"
           >
             <Share2 className="w-[17px] h-[17px]" />
           </button>
