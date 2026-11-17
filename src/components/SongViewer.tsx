@@ -25,6 +25,7 @@ import {
   Gauge,
   Disc3,
   Sparkles,
+  Share2,
 } from 'lucide-react';
 import {
   Song,
@@ -48,6 +49,7 @@ import {
   getTextTransformClass,
 } from '../utils/theme';
 import { toggleFavoriteSong } from '../utils/storage';
+import { shareSongOnWhatsApp } from '../utils/share';
 import { FavBurst } from './FavBurst';
 import { usePinGuard } from './PinGuard';
 import { randomFavMessage } from '../utils/favMessages';
@@ -55,6 +57,16 @@ import { randomFavMessage } from '../utils/favMessages';
 type Panel = 'aa' | 'align' | 'speed' | null;
 
 const formatTime = (secs: number) => `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+
+interface ViewStyle {
+  fontSize: number;
+  fontFamily: FontFamily;
+  lineHeight: LineHeight;
+  align: TextAlign;
+  isBold: boolean;
+  isItalic: boolean;
+  textTransform: TextTransform;
+}
 
 interface SongViewerProps {
   song: Song;
@@ -73,16 +85,36 @@ export function SongViewer({
     song.customStyle?.displayMode || 'standard'
   );
 
-  // Text formatting and styling
-  const [fontSize, setFontSize] = useState<number>(song.customStyle?.fontSize || 20);
-  const [fontFamily, setFontFamily] = useState<FontFamily>(
-    song.customStyle?.fontFamily && song.customStyle.fontFamily !== 'condensed' ? song.customStyle.fontFamily : 'sans'
-  );
-  const [lineHeight, setLineHeight] = useState<LineHeight>(song.customStyle?.lineHeight || 'normal');
-  const [align, setAlign] = useState<TextAlign>(song.customStyle?.align || 'left');
-  const [isBold, setIsBold] = useState<boolean>(song.customStyle?.isBold || false);
-  const [isItalic, setIsItalic] = useState<boolean>(song.customStyle?.isItalic || false);
-  const [textTransform, setTextTransform] = useState<TextTransform>(song.customStyle?.textTransform || 'none');
+  // Text formatting and styling. Each display mode (Full / Live) keeps its own copy, so changing
+  // size, font, style or alignment in one mode never affects the other. Both start from the song's saved style.
+  const [styles, setStyles] = useState<Record<LyricsDisplayMode, ViewStyle>>(() => {
+    const initial = (): ViewStyle => ({
+      fontSize: song.customStyle?.fontSize || 20,
+      fontFamily:
+        song.customStyle?.fontFamily && song.customStyle.fontFamily !== 'condensed' ? song.customStyle.fontFamily : 'sans',
+      lineHeight: song.customStyle?.lineHeight || 'normal',
+      align: song.customStyle?.align || 'left',
+      isBold: song.customStyle?.isBold || false,
+      isItalic: song.customStyle?.isItalic || false,
+      textTransform: song.customStyle?.textTransform || 'none',
+    });
+    return { standard: initial(), live: initial() };
+  });
+  const { fontSize, fontFamily, lineHeight, align, isBold, isItalic, textTransform } = styles[displayMode];
+  // Setters write to the style of the mode currently on screen
+  const setStyleField = <K extends keyof ViewStyle>(key: K, value: ViewStyle[K] | ((current: ViewStyle[K]) => ViewStyle[K])) =>
+    setStyles((prev) => {
+      const current = prev[displayMode];
+      const next = typeof value === 'function' ? (value as (c: ViewStyle[K]) => ViewStyle[K])(current[key]) : value;
+      return { ...prev, [displayMode]: { ...current, [key]: next } };
+    });
+  const setFontSize = (v: number | ((c: number) => number)) => setStyleField('fontSize', v);
+  const setFontFamily = (v: FontFamily) => setStyleField('fontFamily', v);
+  const setLineHeight = (v: LineHeight) => setStyleField('lineHeight', v);
+  const setAlign = (v: TextAlign) => setStyleField('align', v);
+  const setIsBold = (v: boolean) => setStyleField('isBold', v);
+  const setIsItalic = (v: boolean) => setStyleField('isItalic', v);
+  const setTextTransform = (v: TextTransform | ((c: TextTransform) => TextTransform)) => setStyleField('textTransform', v);
   const [highlightChorus, setHighlightChorus] = useState<boolean>(song.customStyle?.highlightChorus ?? true);
 
   // Auto-scroll / Teleprompter State
@@ -432,6 +464,14 @@ export function SongViewer({
             <div className={`text-[15px] leading-tight font-extrabold truncate`}>{song.title}</div>
             <div className={`text-xs leading-tight opacity-60 truncate`}>{song.artist}</div>
           </div>
+          <button
+            onClick={() => shareSongOnWhatsApp(song)}
+            className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 hover:bg-white/15 ${GLASS}`}
+            title="Compartir por WhatsApp"
+            aria-label="Compartir por WhatsApp"
+          >
+            <Share2 className="w-[17px] h-[17px]" />
+          </button>
           <button
             onClick={handleToggleFav}
             className={`relative w-9 h-9 rounded-full flex items-center justify-center shrink-0 hover:bg-white/15 ${GLASS} ${
