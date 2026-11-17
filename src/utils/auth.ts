@@ -9,6 +9,13 @@ export interface AuthUser {
   lastLoginAt: string | null;
 }
 
+// Must stay in sync with the server (auth.ts): lowercase email, nothing else.
+const EMAIL_RE = /^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/;
+export const EMAIL_MAX = 254;
+export const isValidEmail = (v: string) => v.length <= EMAIL_MAX && EMAIL_RE.test(v);
+/** Keeps only characters an email can contain, lowercased, as the user types. */
+export const sanitizeEmailInput = (v: string) => v.toLowerCase().replace(/[^a-z0-9._%+@-]/g, '').slice(0, EMAIL_MAX);
+
 export const UNAUTHORIZED_EVENT = 'lirika:unauthorized';
 
 /** fetch for /api routes: a 401 anywhere signals the app to show the login screen again. */

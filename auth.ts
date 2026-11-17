@@ -19,7 +19,13 @@ const COOKIE = 'lirika_session';
 const SESSION_MS = 7 * 24 * 60 * 60 * 1000;
 const isProduction = process.env.NODE_ENV === 'production' || Boolean(process.env.VERCEL);
 
-const USERNAME_RE = /^[a-z0-9._-]{3,32}$/;
+// Accounts are identified by email (lowercase). Strict on purpose: anything else is rejected.
+const EMAIL_RE = /^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/;
+const EMAIL_MAX = 254;
+const isEmail = (v: string) => v.length <= EMAIL_MAX && EMAIL_RE.test(v);
+
+// The shared "Ingresa sin cuenta" account (same variables the login screen uses)
+const GUEST_USERNAME = (process.env.VITE_GUEST_USERNAME || '').trim().toLowerCase();
 const PASSWORD_MIN = 8;
 const PASSWORD_MAX = 128;
 
@@ -190,6 +196,7 @@ export function setupAuth(app: express.Express, db: Client) {
       await authReady;
       const username = String(req.body?.username ?? '').trim().toLowerCase();
       const password = String(req.body?.password ?? '');
+      if (!isEmail(username)) return res.status(400).json({ error: 'Ingresa un correo electrónico válido' });
       const key = `${req.ip}|${username}`;
       const wait = lockedFor(key);
       if (wait) return res.status(429).json({ error: `Demasiados intentos. Espera ${wait} s.` });
@@ -228,6 +235,9 @@ export function setupAuth(app: express.Express, db: Client) {
   app.post('/api/auth/password', async (req: AuthedRequest, res) => {
     try {
       const { currentPassword, newPassword } = req.body ?? {};
+      if (GUEST_USERNAME && req.user!.username === GUEST_USERNAME) {
+        return res.status(403).json({ error: 'La cuenta compartida no puede cambiar su contraseña' });
+      }
       if (!validPassword(newPassword)) {
         return res.status(400).json({ error: `La nueva contraseña debe tener entre ${PASSWORD_MIN} y ${PASSWORD_MAX} caracteres` });
       }
@@ -264,8 +274,8 @@ export function setupAuth(app: express.Express, db: Client) {
       const username = String(req.body?.username ?? '').trim().toLowerCase();
       const { password } = req.body ?? {};
       const role: Role = req.body?.role === 'admin' ? 'admin' : 'user';
-      if (!USERNAME_RE.test(username)) {
-        return res.status(400).json({ error: 'Usuario: 3 a 32 caracteres (letras, números, punto, guion o guion bajo)' });
+      if (!isEmail(username)) {
+        return res.status(400).json({ error: 'Ingresa un correo electrónico válido' });
       }
       if (!validPassword(password)) {
         return res.status(400).json({ error: `La contraseña debe tener entre ${PASSWORD_MIN} y ${PASSWORD_MAX} caracteres` });

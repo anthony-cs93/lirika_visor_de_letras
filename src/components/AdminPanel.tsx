@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { X, ShieldCheck, UserPlus, KeyRound, Trash2, Loader2, UserCheck, UserX } from 'lucide-react';
-import { AuthUser, Role, adminApi } from '../utils/auth';
+import { AuthUser, Role, EMAIL_MAX, adminApi, isValidEmail, sanitizeEmailInput } from '../utils/auth';
 import { ConfirmDialog } from './ConfirmDialog';
 import { useAuth } from './AuthGate';
 
@@ -151,12 +151,15 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
             </div>
             <input
               className={INPUT}
-              placeholder="Usuario"
+              type="email"
+              inputMode="email"
+              maxLength={EMAIL_MAX}
+              placeholder="Correo electrónico"
               autoCapitalize="none"
               autoComplete="off"
               spellCheck={false}
               value={newUsername}
-              onChange={(e) => setNewUsername(e.target.value)}
+              onChange={(e) => setNewUsername(sanitizeEmailInput(e.target.value))}
             />
             <input
               className={INPUT}
@@ -177,7 +180,7 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
               </select>
               <button
                 type="submit"
-                disabled={creating || !newUsername.trim() || newPassword.length < 8}
+                disabled={creating || !isValidEmail(newUsername) || newPassword.length < 8}
                 className="h-10 px-5 rounded-full text-xs font-extrabold bg-[oklch(0.82_0.14_75)] text-[#17130a] active:scale-95 transition-transform disabled:opacity-50"
               >
                 {creating ? '...' : 'Crear'}

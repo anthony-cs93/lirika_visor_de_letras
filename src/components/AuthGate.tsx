@@ -3,6 +3,9 @@ import { Eye, EyeOff, Loader2, LogIn, Music, User } from 'lucide-react';
 import {
   AuthUser,
   UNAUTHORIZED_EVENT,
+  EMAIL_MAX,
+  isValidEmail,
+  sanitizeEmailInput,
   apiFetch,
   authApi,
   readCachedUser,
@@ -111,6 +114,10 @@ function LoginScreen({ onLoggedIn }: { onLoggedIn: (user: AuthUser) => void }) {
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isValidEmail(username)) {
+      setError('Ingresa un correo electrónico válido');
+      return;
+    }
     signIn(username, password);
   };
 
@@ -148,13 +155,18 @@ function LoginScreen({ onLoggedIn }: { onLoggedIn: (user: AuthUser) => void }) {
               id="login-email"
               className={INPUT}
               type="email"
+              inputMode="email"
+              maxLength={EMAIL_MAX}
               placeholder="Correo electrónico"
               autoComplete="email"
               autoCapitalize="none"
               autoCorrect="off"
               spellCheck={false}
               value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              onChange={(e) => {
+                setUsername(sanitizeEmailInput(e.target.value));
+                setError(null);
+              }}
               autoFocus
             />
             <label htmlFor="login-password" className="sr-only">
@@ -187,7 +199,7 @@ function LoginScreen({ onLoggedIn }: { onLoggedIn: (user: AuthUser) => void }) {
 
           <button
             type="submit"
-            disabled={loading || !username.trim() || !password}
+            disabled={loading || !username || !password}
             className="mt-5 w-full h-[52px] rounded-full text-[15px] font-extrabold flex items-center justify-center gap-2.5 bg-[oklch(0.82_0.14_75)] text-[#17130a] shadow-[0_8px_24px_oklch(0.72_0.15_70_/_0.35)] active:scale-95 transition-transform disabled:opacity-50"
           >
             {loading ? <Loader2 className="w-[18px] h-[18px] animate-spin" /> : <LogIn className="w-[18px] h-[18px]" />}
