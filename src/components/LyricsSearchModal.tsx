@@ -11,7 +11,8 @@ interface LyricsSearchModalProps {
   onSongCreated: (song: Song) => void;
 }
 
-type SourceKey = 'lrclib' | 'letras';
+type EngineKey = 'lrclib' | 'letras';
+type SourceKey = 'general' | EngineKey;
 
 interface SourceDef {
   key: SourceKey;
@@ -20,6 +21,11 @@ interface SourceDef {
 }
 
 const SOURCES: SourceDef[] = [
+  {
+    key: 'general',
+    label: 'Base de datos',
+    hint: 'Busca primero en la base de datos general. Si la canción no está, la busca sola en LRCLIB y Letras.com.',
+  },
   {
     key: 'lrclib',
     label: 'LRCLIB',
@@ -38,6 +44,7 @@ interface WebResult {
   artist: string;
   album?: string;
   source: SourceKey;
+  song?: Song; // full song when the result comes from the general database
   plainLyrics?: string;
   syncedLyrics?: string;
   pageUrl?: string;
@@ -48,7 +55,9 @@ const FIELD =
   'w-full px-3 py-2 bg-black/25 border border-white/10 rounded-2xl text-sm text-[color:var(--ink)] placeholder:text-zinc-600 focus:outline-none focus:border-amber-400';
 
 export function LyricsSearchModal({ isOpen, onClose, onSongCreated }: LyricsSearchModalProps) {
-  const [source, setSource] = useState<SourceKey>('lrclib');
+  const [source, setSource] = useState<SourceKey>('general');
+  const [resultsFrom, setResultsFrom] = useState<SourceKey | null>(null);
+  const [fallbackNote, setFallbackNote] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<WebResult[]>([]);
   const [searched, setSearched] = useState(false);
@@ -69,6 +78,8 @@ export function LyricsSearchModal({ isOpen, onClose, onSongCreated }: LyricsSear
 
   const reset = () => {
     setResults([]);
+    setResultsFrom(null);
+    setFallbackNote(null);
     setSearched(false);
     setError(null);
     setBlockedUrl(null);
@@ -90,11 +101,45 @@ export function LyricsSearchModal({ isOpen, onClose, onSongCreated }: LyricsSear
     if (!q) return;
     reset();
     setLoading(true);
-    try {
-      const res = await apiFetch(`/api/lyrics/web-search?source=${source}&q=${encodeURIComponent(q)}`);
+
+    const searchEngine = async (engine: EngineKey): Promise<WebResult[]> => {
+      const res = await apiFetch(`/api/lyrics/web-search?source=${engine}&q=${encodeURIComponent(q)}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error de búsqueda');
-      setResults(data.results || []);
+      return data.results || [];
+    };
+
+    try {
+      if (source === 'general') {
+        // 1) General database; 2) only if it has nothing, the search engines in order
+        const res = await apiFetch(`/api/songs/search?q=${encodeURIComponent(q)}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Error de búsqueda');
+        if (data.results?.length) {
+          setResults(data.results);
+          setResultsFrom('general');
+        } else {
+          setFallbackNote('No está en la base de datos general; se buscó en los motores de búsqueda.');
+          let lastError: string | null = null;
+          for (const engine of ['lrclib', 'letras'] as EngineKey[]) {
+            try {
+              const found = await searchEngine(engine);
+              if (found.length) {
+                setResults(found);
+                setResultsFrom(engine);
+                lastError = null;
+                break;
+              }
+            } catch (err: any) {
+              lastError = err?.message || 'Error de búsqueda';
+            }
+          }
+          if (lastError) setError(lastError);
+        }
+      } else {
+        setResults(await searchEngine(source));
+        setResultsFrom(source);
+      }
       setSearched(true);
     } catch (err: any) {
       setError(err?.message || 'No se pudo buscar. Verifica tu conexión.');
@@ -114,6 +159,12 @@ export function LyricsSearchModal({ isOpen, onClose, onSongCreated }: LyricsSear
   const pickResult = async (item: WebResult) => {
     setError(null);
     setBlockedUrl(null);
+    if (item.source === 'general' && item.song) {
+      // Already in the shared database: add it to this device's library if needed and open it
+      onSongCreated(upsertSong({ ...item.song, source: item.song.source ?? 'cloud' }));
+      handleClose();
+      return;
+    }
     if (!item.needsFetch) {
       const raw = item.plainLyrics || item.syncedLyrics || '';
       if (!raw.trim()) {
@@ -310,13 +361,25 @@ export function LyricsSearchModal({ isOpen, onClose, onSongCreated }: LyricsSear
             {loading && (
               <div className="flex flex-col items-center py-8 gap-2 opacity-70">
                 <Loader2 className="w-6 h-6 animate-spin text-[oklch(0.82_0.14_75)]" />
-                <span className="text-xs">Buscando en {src.label}…</span>
+                <span className="text-xs">Buscando en {source === 'general' ? 'la base de datos general' : src.label}…</span>
               </div>
+            )}
+
+            {!loading && fallbackNote && (
+              <p className="text-[11px] text-amber-300/90">
+                {results.length ? fallbackNote : 'No está en la base de datos general ni en los motores de búsqueda.'}
+              </p>
             )}
 
             {!loading && searched && results.length === 0 && (
               <p className="text-center text-xs opacity-60 py-6">
-                Sin resultados. Prueba con otra fuente o con menos palabras.
+                Sin resultados. Prueba con menos palabras o solo el título.
+              </p>
+            )}
+
+            {!loading && resultsFrom && results.length > 0 && (
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                Resultados de {SOURCES.find((s) => s.key === resultsFrom)?.label}
               </p>
             )}
 
@@ -340,7 +403,7 @@ export function LyricsSearchModal({ isOpen, onClose, onSongCreated }: LyricsSear
                     ) : (
                       <Download className="w-3.5 h-3.5" />
                     )}
-                    Extraer
+                    {item.source === 'general' ? 'Abrir' : 'Extraer'}
                   </button>
                 </div>
               ))}

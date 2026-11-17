@@ -118,6 +118,20 @@ export function toggleFavoriteSong(id: string): boolean {
   return !!target.isFavorite;
 }
 
+// Add/remove a song from a group (folder)
+export function toggleSongGroup(id: string, groupId: string): boolean {
+  const songs = readAllSongs();
+  const target = songs.find(s => s.id === id && !s.deletedAt);
+  if (!target) return false;
+  const current = target.groupIds ?? [];
+  const inGroup = current.includes(groupId);
+  target.groupIds = inGroup ? current.filter(g => g !== groupId) : [...current, groupId];
+  target.updatedAt = new Date().toISOString();
+  writeAllSongs(songs);
+  triggerCloudSync();
+  return !inGroup;
+}
+
 // Cloud synchronization logic
 let syncInProgress = false;
 let syncQueued = false;

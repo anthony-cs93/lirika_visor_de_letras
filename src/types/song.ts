@@ -48,6 +48,7 @@ export interface Song {
   timeSignature?: string;
   tags?: string[];
   isFavorite?: boolean;
+  groupIds?: string[]; // user-created folders this song belongs to
   createdAt: string;
   updatedAt: string;
   deletedAt?: string; // set when deleted; kept as a tombstone so the deletion syncs

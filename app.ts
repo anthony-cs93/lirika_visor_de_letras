@@ -40,6 +40,10 @@ async function initDb() {
     `UPDATE songs SET title = json_extract(data, '$.title'), artist = json_extract(data, '$.artist'),
      deleted_at = json_extract(data, '$.deletedAt') WHERE title IS NULL`
   );
+  // User-created folders ("grupos") for organizing songs; songs reference them by id (song.groupIds)
+  await db.execute(
+    'CREATE TABLE IF NOT EXISTS song_groups (id TEXT PRIMARY KEY, name TEXT NOT NULL, position INTEGER NOT NULL, created_at TEXT NOT NULL)'
+  );
   // One-time import of the old local JSON store
   const { rows } = await db.execute('SELECT COUNT(*) AS n FROM songs');
   if (Number(rows[0].n) === 0 && fs.existsSync(LEGACY_FILE)) {
@@ -134,6 +138,127 @@ app.post('/api/sync/push', async (req, res) => {
   } catch (err: any) {
     console.error('Error in sync push:', err);
     res.status(500).json({ error: 'Error interno al sincronizar con la nube' });
+  }
+});
+
+// API: General database search. Looks through every (non-deleted) song stored in the shared cloud database,
+// ignoring case and accents. This is the first step of the lyrics search; web engines come only if it finds nothing.
+const normalize = (v: string) => v.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+
+app.get('/api/songs/search', async (req, res) => {
+  const q = normalize(String(req.query.q || '').trim());
+  if (!q) return res.json({ results: [] });
+  try {
+    await dbReady;
+    const words = q.split(/\s+/).filter(Boolean);
+    const results = (await getSongs())
+      .filter((s) => !s.deletedAt)
+      .map((s) => {
+        const head = normalize(`${s.title || ''} ${s.artist || ''}`);
+        const haystack = `${head} ${normalize(s.lyrics || '')}`;
+        const matches = words.every((w) => haystack.includes(w));
+        // Title/artist hits first (full phrase best), lyrics-only hits last
+        const score = head.includes(q) ? 0 : words.every((w) => head.includes(w)) ? 1 : 2;
+        return { s, matches, score };
+      })
+      .filter((x) => x.matches)
+      .sort((a, b) => a.score - b.score)
+      .map((x) => x.s)
+      .slice(0, 20)
+      .map((s) => ({
+        id: `general_${s.id}`,
+        songId: String(s.id),
+        title: s.title || 'Sin título',
+        artist: s.artist || 'Artista desconocido',
+        album: s.album || '',
+        plainLyrics: s.lyrics || '',
+        song: s,
+        source: 'general',
+        needsFetch: false,
+      }));
+    res.json({ results });
+  } catch (err) {
+    console.error('Error in general search:', err);
+    res.status(500).json({ error: 'No se pudo consultar la base de datos general', results: [] });
+  }
+});
+
+// API: Song groups (folders). At most MAX_GROUPS, shared by every account like the songs themselves.
+const MAX_GROUPS = 5;
+const GROUP_NAME_MAX = 20;
+
+const groupName = (v: unknown) => String(v ?? '').trim().replace(/\s+/g, ' ');
+
+app.get('/api/groups', async (_req, res) => {
+  try {
+    await dbReady;
+    const { rows } = await db.execute('SELECT id, name, position FROM song_groups ORDER BY position ASC, created_at ASC');
+    res.json({ groups: rows.map((r) => ({ id: String(r.id), name: String(r.name), position: Number(r.position) })) });
+  } catch (err) {
+    console.error('Error listing groups:', err);
+    res.status(500).json({ error: 'No se pudieron leer los grupos' });
+  }
+});
+
+app.post('/api/groups', async (req, res) => {
+  const name = groupName(req.body?.name);
+  if (!name || name.length > GROUP_NAME_MAX) {
+    return res.status(400).json({ error: `El nombre debe tener entre 1 y ${GROUP_NAME_MAX} caracteres` });
+  }
+  try {
+    await dbReady;
+    const { rows } = await db.execute('SELECT name, position FROM song_groups');
+    if (rows.length >= MAX_GROUPS) {
+      return res.status(409).json({ error: `Máximo ${MAX_GROUPS} grupos` });
+    }
+    if (rows.some((r) => normalize(String(r.name)) === normalize(name)) || normalize(name) === 'favoritas') {
+      return res.status(409).json({ error: 'Ya existe un grupo con ese nombre' });
+    }
+    const id = `grp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const position = rows.reduce((m, r) => Math.max(m, Number(r.position)), -1) + 1;
+    await db.execute({
+      sql: 'INSERT INTO song_groups (id, name, position, created_at) VALUES (?, ?, ?, ?)',
+      args: [id, name, position, new Date().toISOString()],
+    });
+    res.status(201).json({ group: { id, name, position } });
+  } catch (err) {
+    console.error('Error creating group:', err);
+    res.status(500).json({ error: 'No se pudo crear el grupo' });
+  }
+});
+
+app.patch('/api/groups/:id', async (req, res) => {
+  const name = groupName(req.body?.name);
+  if (!name || name.length > GROUP_NAME_MAX) {
+    return res.status(400).json({ error: `El nombre debe tener entre 1 y ${GROUP_NAME_MAX} caracteres` });
+  }
+  try {
+    await dbReady;
+    const { rows } = await db.execute('SELECT id, name, position FROM song_groups');
+    const target = rows.find((r) => r.id === req.params.id);
+    if (!target) return res.status(404).json({ error: 'Grupo no encontrado' });
+    if (
+      rows.some((r) => r.id !== target.id && normalize(String(r.name)) === normalize(name)) ||
+      normalize(name) === 'favoritas'
+    ) {
+      return res.status(409).json({ error: 'Ya existe un grupo con ese nombre' });
+    }
+    await db.execute({ sql: 'UPDATE song_groups SET name = ? WHERE id = ?', args: [name, req.params.id] });
+    res.json({ group: { id: String(target.id), name, position: Number(target.position) } });
+  } catch (err) {
+    console.error('Error renaming group:', err);
+    res.status(500).json({ error: 'No se pudo renombrar el grupo' });
+  }
+});
+
+app.delete('/api/groups/:id', async (req, res) => {
+  try {
+    await dbReady;
+    await db.execute({ sql: 'DELETE FROM song_groups WHERE id = ?', args: [req.params.id] });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error deleting group:', err);
+    res.status(500).json({ error: 'No se pudo eliminar el grupo' });
   }
 });
 

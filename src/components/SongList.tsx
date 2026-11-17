@@ -19,6 +19,9 @@ import {
   Sun,
   Moon,
   ShieldCheck,
+  FolderPlus,
+  Folder,
+  Pencil,
 } from 'lucide-react';
 import { Song, CloudSyncStatus } from '../types/song';
 import { parseLyricsToBlocks } from '../utils/lyricsParser';
@@ -27,9 +30,11 @@ import { usePinGuard } from './PinGuard';
 import { useAuth } from './AuthGate';
 import { FavBurst } from './FavBurst';
 import { randomFavMessage } from '../utils/favMessages';
+import { SongGroup, MAX_GROUPS, GROUP_NAME_MAX, readCachedGroups, fetchGroups, groupsApi } from '../utils/groups';
 import {
   getLocalSongs,
   toggleFavoriteSong,
+  toggleSongGroup,
   deleteSong,
   upsertSong,
   subscribeToStore,
@@ -65,7 +70,15 @@ export function SongList({
   // Message floating above the heart that was just pressed (n makes each press a fresh animation)
   const [burst, setBurst] = useState<{ id: string; text: string; n: number } | null>(null);
   const burstTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const [filterTab, setFilterTab] = useState<'all' | 'favorites' | 'uploaded' | 'chorus'>('all');
+  const [filterTab, setFilterTab] = useState<string>('all'); // 'all' | 'favorites' | 'uploaded' | 'chorus' | `group:<id>`
+
+  // Groups (folders): up to MAX_GROUPS, shown after "Favoritas"
+  const [groups, setGroups] = useState<SongGroup[]>(readCachedGroups());
+  const [groupDialog, setGroupDialog] = useState<{ mode: 'create' } | { mode: 'rename'; group: SongGroup } | null>(null);
+  const [groupName, setGroupName] = useState('');
+  const [groupError, setGroupError] = useState<string | null>(null);
+  const [deleteGroupTarget, setDeleteGroupTarget] = useState<SongGroup | null>(null);
+  const [pickerSongId, setPickerSongId] = useState<string | null>(null);
 
   // Online search state
   const [isSearchingOnline, setIsSearchingOnline] = useState(false);
@@ -92,6 +105,7 @@ export function SongList({
     });
     // Trigger initial background sync on mount
     triggerCloudSync();
+    fetchGroups().then(setGroups).catch(() => {}); // offline: keep the cached groups
 
     return () => {
       unsubStore();
@@ -153,6 +167,7 @@ export function SongList({
     if (!matchesSearch) return false;
 
     if (filterTab === 'favorites') return song.isFavorite;
+    if (filterTab.startsWith('group:')) return !!song.groupIds?.includes(filterTab.slice(6));
     if (filterTab === 'uploaded') return song.source === 'upload';
     if (filterTab === 'chorus') return /\[?(coro|chorus|estribillo)\]?/i.test(song.lyrics);
 
@@ -184,12 +199,56 @@ export function SongList({
     return `linear-gradient(135deg, oklch(0.8 0.13 ${h}), oklch(0.58 0.15 ${(h + 50) % 360}))`;
   };
 
-  const tabs: { key: 'all' | 'favorites' | 'uploaded' | 'chorus' | 'online'; label: string }[] = [
+  const tabs: { key: string; label: string }[] = [
     { key: 'all', label: 'Mis letras' },
     { key: 'favorites', label: 'Favoritas' },
+    ...groups.map((g) => ({ key: `group:${g.id}`, label: g.name })),
   ];
+  const activeGroup = groups.find((g) => `group:${g.id}` === filterTab) ?? null;
+  // If the active group disappeared (deleted elsewhere), fall back to the whole library
+  useEffect(() => {
+    if (filterTab.startsWith('group:') && !activeGroup) setFilterTab('all');
+  }, [filterTab, activeGroup]);
+
+  const openGroupDialog = (d: NonNullable<typeof groupDialog>) => {
+    setGroupName(d.mode === 'rename' ? d.group.name : '');
+    setGroupError(null);
+    setGroupDialog(d);
+  };
+  const closeGroupDialog = () => setGroupDialog(null);
+  const submitGroup = async () => {
+    if (!groupDialog) return;
+    const name = groupName.trim().replace(/\s+/g, ' ');
+    if (!name) return setGroupError('Escribe un nombre');
+    try {
+      if (groupDialog.mode === 'create') {
+        const created = await groupsApi.create(name);
+        setGroups((prev) => [...prev, created]);
+        setFilterTab(`group:${created.id}`);
+        setIsSearchingOnline(false);
+      } else {
+        const renamed = await groupsApi.rename(groupDialog.group.id, name);
+        setGroups((prev) => prev.map((g) => (g.id === renamed.id ? renamed : g)));
+      }
+      closeGroupDialog();
+    } catch (err: any) {
+      setGroupError(err.message === 'Failed to fetch' ? 'Necesitas conexión para cambiar los grupos' : err.message);
+    }
+  };
+  const confirmDeleteGroup = async () => {
+    const target = deleteGroupTarget;
+    setDeleteGroupTarget(null);
+    if (!target) return;
+    try {
+      await groupsApi.remove(target.id);
+      setGroups((prev) => prev.filter((g) => g.id !== target.id));
+    } catch {
+      setOnlineError('No se pudo eliminar el grupo. Verifica tu conexión.');
+    }
+  };
+  const pickerSong = songs.find((x) => x.id === pickerSongId) ?? null;
   const activeTab = isSearchingOnline ? 'online' : filterTab;
-  const selectTab = (key: (typeof tabs)[number]['key']) => {
+  const selectTab = (key: string) => {
     if (key === 'online') {
       setIsSearchingOnline(true);
       if (searchQuery.trim().length > 1) handleOnlineSearch(searchQuery);
@@ -203,6 +262,83 @@ export function SongList({
   return (
     <div className="relative flex flex-col h-full text-[color:var(--ink)] overflow-hidden bg-[color:var(--page)]">
       {pinDialog}
+
+      <ConfirmDialog
+        open={!!groupDialog}
+        icon={<Folder className="w-6 h-6" />}
+        title={groupDialog?.mode === 'rename' ? 'Renombrar grupo' : 'Nuevo grupo'}
+        message={
+          <span className="block mt-1">
+            <input
+              autoFocus
+              value={groupName}
+              maxLength={GROUP_NAME_MAX}
+              onChange={(e) => {
+                setGroupName(e.target.value);
+                setGroupError(null);
+              }}
+              onKeyDown={(e) => e.key === 'Enter' && submitGroup()}
+              placeholder="Nombre del grupo"
+              className="w-full h-11 px-4 rounded-full bg-white/[0.08] border border-white/15 text-sm text-[color:var(--ink)] outline-none focus:border-[oklch(0.82_0.14_75)]"
+            />
+            <span role="alert" className={`block mt-2 text-xs font-bold text-[oklch(0.7_0.19_22)] ${groupError ? '' : 'hidden'}`}>
+              {groupError}
+            </span>
+          </span>
+        }
+        onClose={closeGroupDialog}
+        actions={[
+          { label: 'Cancelar', onClick: closeGroupDialog },
+          { label: groupDialog?.mode === 'rename' ? 'Guardar' : 'Crear', tone: 'primary', onClick: submitGroup },
+        ]}
+      />
+
+      <ConfirmDialog
+        open={!!deleteGroupTarget}
+        tone="danger"
+        icon={<Trash2 className="w-6 h-6" />}
+        title={deleteGroupTarget ? `¿Eliminar el grupo "${deleteGroupTarget.name}"?` : ''}
+        message="Las canciones no se borran; solo dejan de estar en este grupo."
+        onClose={() => setDeleteGroupTarget(null)}
+        actions={[
+          { label: 'Cancelar', onClick: () => setDeleteGroupTarget(null) },
+          { label: 'Eliminar', tone: 'danger', onClick: confirmDeleteGroup },
+        ]}
+      />
+
+      <ConfirmDialog
+        open={!!pickerSong}
+        icon={<FolderPlus className="w-6 h-6" />}
+        title={pickerSong ? `Grupos de "${pickerSong.title}"` : ''}
+        message={
+          groups.length === 0 ? (
+            'Aún no tienes grupos. Crea uno con el botón + junto a Favoritas.'
+          ) : (
+            <span className="flex flex-col gap-2 mt-1">
+              {groups.map((g) => {
+                const inGroup = !!pickerSong?.groupIds?.includes(g.id);
+                return (
+                  <button
+                    key={g.id}
+                    type="button"
+                    onClick={() => pickerSong && toggleSongGroup(pickerSong.id, g.id)}
+                    className={`w-full h-11 px-4 rounded-full flex items-center justify-between text-sm font-bold border transition-colors ${
+                      inGroup
+                        ? 'bg-[oklch(0.82_0.14_75)] text-[#17130a] border-[oklch(0.82_0.14_75)]'
+                        : 'bg-white/[0.08] text-[color:var(--ink)] border-white/15'
+                    }`}
+                  >
+                    <span className="truncate">{g.name}</span>
+                    {inGroup && <Check className="w-4 h-4 shrink-0" />}
+                  </button>
+                );
+              })}
+            </span>
+          )
+        }
+        onClose={() => setPickerSongId(null)}
+        actions={[{ label: 'Listo', tone: 'primary', onClick: () => setPickerSongId(null) }]}
+      />
       <ConfirmDialog
         open={!!pendingDelete}
         tone="danger"
@@ -326,7 +462,28 @@ export function SongList({
               </button>
             );
           })}
+          {groups.length < MAX_GROUPS && (
+            <button
+              onClick={() => openGroupDialog({ mode: 'create' })}
+              aria-label="Crear grupo"
+              title={`Crear grupo (${groups.length}/${MAX_GROUPS})`}
+              className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center border border-dashed border-white/25 bg-white/[0.04] text-[color:var(--ink)] active:scale-90 transition-transform"
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+          )}
         </div>
+
+        {activeGroup && !isSearchingOnline && (
+          <div className="flex items-center gap-4 px-6 -mt-1 pb-2 text-xs font-bold opacity-70 shrink-0">
+            <button onClick={() => openGroupDialog({ mode: 'rename', group: activeGroup })} className="flex items-center gap-1.5">
+              <Pencil className="w-3.5 h-3.5" /> Renombrar
+            </button>
+            <button onClick={() => setDeleteGroupTarget(activeGroup)} className="flex items-center gap-1.5 text-[oklch(0.75_0.17_10)]">
+              <Trash2 className="w-3.5 h-3.5" /> Eliminar grupo
+            </button>
+          </div>
+        )}
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto no-scrollbar px-5 pt-6 pb-32 space-y-2 [mask-image:linear-gradient(transparent,#000_22px)]">
@@ -460,6 +617,20 @@ export function SongList({
                       {burst?.id === song.id && <FavBurst key={burst.n} text={burst.text} />}
                     </button>
                     <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPickerSongId(song.id);
+                      }}
+                      className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+                        song.groupIds?.some((id) => groups.some((g) => g.id === id))
+                          ? 'text-[oklch(0.82_0.14_75)]'
+                          : 'text-[color:var(--ink)]/30 hover:text-[color:var(--ink)]'
+                      }`}
+                      title="Agregar a grupos"
+                    >
+                      <FolderPlus className="w-[15px] h-[15px]" />
+                    </button>
+                    <button
                       onClick={(e) => handleDeleteSong(e, song.id)}
                       className="w-8 h-8 rounded-full flex items-center justify-center text-[color:var(--ink)]/30 hover:text-[oklch(0.75_0.17_10)] transition-colors"
                       title="Eliminar canción"
@@ -480,7 +651,9 @@ export function SongList({
                 <p className="text-xs opacity-55 mt-1 max-w-xs mx-auto">
                   {searchQuery
                     ? `No hay canciones que coincidan con "${searchQuery}".`
-                    : 'Tu biblioteca está lista para tus canciones favoritas.'}
+                    : activeGroup
+                      ? 'Este grupo está vacío. Usa el botón de carpeta en una canción para agregarla.'
+                      : 'Tu biblioteca está lista para tus canciones favoritas.'}
                 </p>
               </div>
             </div>
