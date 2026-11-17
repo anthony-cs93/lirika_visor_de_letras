@@ -34,6 +34,7 @@ import {
   subscribeToSyncStatus,
   triggerCloudSync,
 } from '../utils/storage';
+import { apiFetch } from '../utils/auth';
 
 interface SongListProps {
   onSelectSong: (song: Song) => void;
@@ -103,7 +104,7 @@ export function SongList({
     setOnlineError(null);
 
     try {
-      const res = await fetch(`/api/lyrics/search?q=${encodeURIComponent(queryText.trim())}`);
+      const res = await apiFetch(`/api/lyrics/search?q=${encodeURIComponent(queryText.trim())}`);
       if (!res.ok) throw new Error('Error al conectar con el buscador');
       const data = await res.json();
       setOnlineResults(data.results || []);

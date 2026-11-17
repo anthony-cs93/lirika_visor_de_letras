@@ -1,6 +1,7 @@
 import { Song, CloudSyncStatus } from '../types/song';
 import { INITIAL_SONGS } from '../data/defaultSongs';
 import { stripChords } from './lyricsParser';
+import { apiFetch } from './auth';
 
 const STORAGE_KEY = 'lirika_songs_v1';
 const SETTINGS_KEY = 'lirika_user_settings_v1';
@@ -174,7 +175,7 @@ export async function triggerCloudSync(): Promise<{ success: boolean; count?: nu
     const localSongs = readAllSongs();
 
     // Push local songs to cloud
-    const response = await fetch('/api/sync/push', {
+    const response = await apiFetch('/api/sync/push', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ songs: localSongs }),

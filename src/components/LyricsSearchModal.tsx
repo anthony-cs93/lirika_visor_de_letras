@@ -3,6 +3,7 @@ import { Search, X, Loader2, ExternalLink, ChevronLeft, AlertCircle, Sparkles, D
 import { Song } from '../types/song';
 import { cleanLrcContent } from '../utils/lyricsParser';
 import { upsertSong } from '../utils/storage';
+import { apiFetch } from '../utils/auth';
 
 interface LyricsSearchModalProps {
   isOpen: boolean;
@@ -90,7 +91,7 @@ export function LyricsSearchModal({ isOpen, onClose, onSongCreated }: LyricsSear
     reset();
     setLoading(true);
     try {
-      const res = await fetch(`/api/lyrics/web-search?source=${source}&q=${encodeURIComponent(q)}`);
+      const res = await apiFetch(`/api/lyrics/web-search?source=${source}&q=${encodeURIComponent(q)}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error de búsqueda');
       setResults(data.results || []);
@@ -124,7 +125,7 @@ export function LyricsSearchModal({ isOpen, onClose, onSongCreated }: LyricsSear
     }
     setFetchingId(item.id);
     try {
-      const res = await fetch(`/api/lyrics/web-fetch?url=${encodeURIComponent(item.pageUrl || '')}`);
+      const res = await apiFetch(`/api/lyrics/web-fetch?url=${encodeURIComponent(item.pageUrl || '')}`);
       const data = await res.json();
       if (!res.ok) {
         setError(data.error || 'No se pudo extraer la letra.');

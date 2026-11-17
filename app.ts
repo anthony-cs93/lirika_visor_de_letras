@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { createClient } from '@libsql/client';
+import { setupAuth } from './auth.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,6 +18,9 @@ const db = createClient({
   url: process.env.TURSO_DATABASE_URL || 'libsql://lirika-anthonycs.aws-us-west-2.turso.io',
   authToken: process.env.TURSO_AUTH_TOKEN,
 });
+
+// Credential login + roles; must be registered before the routes it protects
+setupAuth(app, db);
 
 const LEGACY_FILE = path.resolve(__dirname, 'data', 'cloud_sync.json');
 
