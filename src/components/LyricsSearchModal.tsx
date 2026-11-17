@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Search, X, Loader2, ExternalLink, ChevronLeft, AlertCircle, Sparkles, Download } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import { Search, X, Loader2, ExternalLink, ChevronLeft, AlertCircle, Sparkles, Download, FolderOpen } from 'lucide-react';
 import { Song } from '../types/song';
 import { cleanLrcContent } from '../utils/lyricsParser';
 import { upsertSong } from '../utils/storage';
@@ -11,32 +11,20 @@ interface LyricsSearchModalProps {
   onSongCreated: (song: Song) => void;
 }
 
-type EngineKey = 'lrclib' | 'letras';
-type SourceKey = 'general' | EngineKey;
+type SourceKey = 'general' | 'lrclib' | 'letras';
 
-interface SourceDef {
-  key: SourceKey;
-  label: string;
-  hint: string;
-}
-
-const SOURCES: SourceDef[] = [
-  {
-    key: 'general',
-    label: 'Base de datos',
-    hint: 'Busca primero en la base de datos general. Si la canción no está, la busca sola en LRCLIB y Letras.com.',
-  },
-  {
-    key: 'lrclib',
-    label: 'LRCLIB',
-    hint: 'Búsqueda abierta con letras completas.',
-  },
-  {
-    key: 'letras',
-    label: 'Letras.com',
-    hint: 'Busca aquí y extrae la letra. Si el sitio bloquea la descarga, ábrelo y pega el texto.',
-  },
-];
+// Every search queries all sources at once; results are listed in this order, each tagged with where it comes from
+const SOURCE_ORDER: SourceKey[] = ['general', 'lrclib', 'letras'];
+const SOURCE_LABEL: Record<SourceKey, string> = {
+  general: 'Base de datos',
+  lrclib: 'LRCLIB',
+  letras: 'Letras.com',
+};
+const SOURCE_TAG: Record<SourceKey, string> = {
+  general: 'bg-emerald-400/15 text-emerald-300',
+  lrclib: 'bg-sky-400/15 text-sky-300',
+  letras: 'bg-violet-400/15 text-violet-300',
+};
 
 interface WebResult {
   id: string;
@@ -55,11 +43,10 @@ const FIELD =
   'w-full px-3 py-2 bg-black/25 border border-white/10 rounded-2xl text-sm text-[color:var(--ink)] placeholder:text-zinc-600 focus:outline-none focus:border-amber-400';
 
 export function LyricsSearchModal({ isOpen, onClose, onSongCreated }: LyricsSearchModalProps) {
-  const [source, setSource] = useState<SourceKey>('general');
-  const [resultsFrom, setResultsFrom] = useState<SourceKey | null>(null);
-  const [fallbackNote, setFallbackNote] = useState<string | null>(null);
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<WebResult[]>([]);
+  const [bySource, setBySource] = useState<Partial<Record<SourceKey, WebResult[]>>>({});
+  const [failed, setFailed] = useState<SourceKey[]>([]);
+  const searchId = useRef(0);
   const [searched, setSearched] = useState(false);
   const [loading, setLoading] = useState(false);
   const [fetchingId, setFetchingId] = useState<string | null>(null);
@@ -74,24 +61,28 @@ export function LyricsSearchModal({ isOpen, onClose, onSongCreated }: LyricsSear
 
   if (!isOpen) return null;
 
-  const src = SOURCES.find((s) => s.key === source)!;
+  const results = SOURCE_ORDER.flatMap((k) => bySource[k] ?? []);
 
   const reset = () => {
-    setResults([]);
-    setResultsFrom(null);
-    setFallbackNote(null);
+    searchId.current++; // drops answers from any search still in flight
+    setBySource({});
+    setFailed([]);
     setSearched(false);
     setError(null);
     setBlockedUrl(null);
   };
 
-  const handleClose = () => {
+  const clearState = () => {
     setEditing(false);
     setTitle('');
     setArtist('');
     setLyrics('');
     setQuery('');
     reset();
+  };
+
+  const handleClose = () => {
+    clearState();
     onClose();
   };
 
@@ -100,52 +91,39 @@ export function LyricsSearchModal({ isOpen, onClose, onSongCreated }: LyricsSear
     const q = query.trim();
     if (!q) return;
     reset();
+    const id = searchId.current;
     setLoading(true);
 
-    const searchEngine = async (engine: EngineKey): Promise<WebResult[]> => {
-      const res = await apiFetch(`/api/lyrics/web-search?source=${engine}&q=${encodeURIComponent(q)}`);
+    const getResults = async (url: string): Promise<WebResult[]> => {
+      const res = await apiFetch(url);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error de búsqueda');
       return data.results || [];
     };
+    const enc = encodeURIComponent(q);
+    const fetchers: Record<SourceKey, () => Promise<WebResult[]>> = {
+      general: () => getResults(`/api/songs/search?q=${enc}`),
+      lrclib: () => getResults(`/api/lyrics/web-search?source=lrclib&q=${enc}`),
+      letras: () => getResults(`/api/lyrics/web-search?source=letras&q=${enc}`),
+    };
 
-    try {
-      if (source === 'general') {
-        // 1) General database; 2) only if it has nothing, the search engines in order
-        const res = await apiFetch(`/api/songs/search?q=${encodeURIComponent(q)}`);
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Error de búsqueda');
-        if (data.results?.length) {
-          setResults(data.results);
-          setResultsFrom('general');
-        } else {
-          setFallbackNote('No está en la base de datos general; se buscó en los motores de búsqueda.');
-          let lastError: string | null = null;
-          for (const engine of ['lrclib', 'letras'] as EngineKey[]) {
-            try {
-              const found = await searchEngine(engine);
-              if (found.length) {
-                setResults(found);
-                setResultsFrom(engine);
-                lastError = null;
-                break;
-              }
-            } catch (err: any) {
-              lastError = err?.message || 'Error de búsqueda';
-            }
-          }
-          if (lastError) setError(lastError);
+    // All sources in parallel; each list appears as soon as it arrives
+    let failures = 0;
+    await Promise.all(
+      SOURCE_ORDER.map(async (key) => {
+        try {
+          const found = await fetchers[key]();
+          if (id === searchId.current) setBySource((prev) => ({ ...prev, [key]: found }));
+        } catch {
+          failures++;
+          if (id === searchId.current) setFailed((prev) => [...prev, key]);
         }
-      } else {
-        setResults(await searchEngine(source));
-        setResultsFrom(source);
-      }
-      setSearched(true);
-    } catch (err: any) {
-      setError(err?.message || 'No se pudo buscar. Verifica tu conexión.');
-    } finally {
-      setLoading(false);
-    }
+      })
+    );
+    if (id !== searchId.current) return;
+    if (failures === SOURCE_ORDER.length) setError('No se pudo buscar. Verifica tu conexión.');
+    setSearched(true);
+    setLoading(false);
   };
 
   const openEditor = (t: string, a: string, l: string) => {
@@ -162,7 +140,7 @@ export function LyricsSearchModal({ isOpen, onClose, onSongCreated }: LyricsSear
     if (item.source === 'general' && item.song) {
       // Already in the shared database: add it to this device's library if needed and open it
       onSongCreated(upsertSong({ ...item.song, source: item.song.source ?? 'cloud' }));
-      handleClose();
+      clearState();
       return;
     }
     if (!item.needsFetch) {
@@ -221,7 +199,7 @@ export function LyricsSearchModal({ isOpen, onClose, onSongCreated }: LyricsSear
       isFavorite: false,
     });
     onSongCreated(saved);
-    handleClose();
+    clearState();
   };
 
   return (
@@ -318,27 +296,9 @@ export function LyricsSearchModal({ isOpen, onClose, onSongCreated }: LyricsSear
           </form>
         ) : (
           <div className="p-5 overflow-y-auto space-y-3 text-sm">
-            {/* Source selector */}
-            <div className="flex gap-2 overflow-x-auto no-scrollbar -mx-1 px-1">
-              {SOURCES.map((s) => (
-                <button
-                  key={s.key}
-                  type="button"
-                  onClick={() => {
-                    setSource(s.key);
-                    reset();
-                  }}
-                  className={`shrink-0 whitespace-nowrap px-3.5 py-1.5 rounded-full text-xs font-bold border transition-all ${
-                    source === s.key
-                      ? 'bg-[oklch(0.82_0.14_75)] text-[#17130a] border-[oklch(0.82_0.14_75)]'
-                      : 'bg-white/[0.07] border-white/[0.12]'
-                  }`}
-                >
-                  {s.label}
-                </button>
-              ))}
-            </div>
-            <p className="text-[11px] text-zinc-400">{src.hint}</p>
+            <p className="text-[11px] text-zinc-400">
+              Busca a la vez en la base de datos general, LRCLIB y Letras.com. Cada resultado indica de dónde viene.
+            </p>
 
             <form onSubmit={runSearch} className="flex gap-2">
               <input
@@ -351,62 +311,67 @@ export function LyricsSearchModal({ isOpen, onClose, onSongCreated }: LyricsSear
               <button
                 type="submit"
                 disabled={loading || !query.trim()}
-                className="shrink-0 px-4 rounded-2xl bg-[oklch(0.82_0.14_75)] text-[#17130a] text-xs font-extrabold disabled:opacity-50 flex items-center gap-1.5"
+                className="shrink-0 h-9 self-center px-3 rounded-full bg-[oklch(0.82_0.14_75)] text-[#17130a] text-[11px] font-extrabold disabled:opacity-50 flex items-center gap-1"
               >
-                <Search className="w-4 h-4" />
+                <Search className="w-3.5 h-3.5" />
                 Buscar
               </button>
             </form>
 
             {loading && (
-              <div className="flex flex-col items-center py-8 gap-2 opacity-70">
-                <Loader2 className="w-6 h-6 animate-spin text-[oklch(0.82_0.14_75)]" />
-                <span className="text-xs">Buscando en {source === 'general' ? 'la base de datos general' : src.label}…</span>
+              <div className={`flex items-center justify-center gap-2 opacity-70 ${results.length ? 'py-1' : 'flex-col py-8'}`}>
+                <Loader2 className={`animate-spin text-[oklch(0.82_0.14_75)] ${results.length ? 'w-4 h-4' : 'w-6 h-6'}`} />
+                <span className="text-xs">Buscando en todas las fuentes…</span>
               </div>
             )}
 
-            {!loading && fallbackNote && (
+            {!loading && failed.length > 0 && failed.length < SOURCE_ORDER.length && (
               <p className="text-[11px] text-amber-300/90">
-                {results.length ? fallbackNote : 'No está en la base de datos general ni en los motores de búsqueda.'}
+                No respondió: {failed.map((k) => SOURCE_LABEL[k]).join(', ')}.
               </p>
             )}
 
-            {!loading && searched && results.length === 0 && (
+            {!loading && searched && results.length === 0 && failed.length < SOURCE_ORDER.length && (
               <p className="text-center text-xs opacity-60 py-6">
                 Sin resultados. Prueba con menos palabras o solo el título.
               </p>
             )}
 
-            {!loading && resultsFrom && results.length > 0 && (
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
-                Resultados de {SOURCES.find((s) => s.key === resultsFrom)?.label}
-              </p>
-            )}
-
-            {!loading &&
-              results.map((item) => (
-                <div key={item.id} className="px-4 py-3 rounded-2xl flex items-center gap-3 bg-white/[0.06] border border-white/10">
-                  <div className="min-w-0 flex-1">
-                    <h4 className="font-bold text-[14px] truncate">{item.title}</h4>
-                    <p className="text-xs opacity-60 truncate mt-0.5">
-                      {item.artist}
-                      {item.album ? ` · ${item.album}` : ''}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => pickResult(item)}
-                    disabled={fetchingId === item.id}
-                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-extrabold shrink-0 bg-[oklch(0.82_0.14_75)] text-[#17130a] disabled:opacity-60"
-                  >
-                    {fetchingId === item.id ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <Download className="w-3.5 h-3.5" />
+            {results.map((item) => (
+              <div key={item.id} className="pl-3.5 pr-2.5 py-2 rounded-2xl flex items-center gap-2.5 bg-white/[0.06] border border-white/10">
+                <div className="min-w-0 flex-1">
+                  <h4 className="font-bold text-[14px] truncate">{item.title}</h4>
+                  <p className="text-xs opacity-60 truncate mt-0.5">
+                    {item.artist}
+                    {item.album ? ` · ${item.album}` : ''}
+                  </p>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    <span className={`px-2 py-px rounded-full text-[10px] font-bold ${SOURCE_TAG[item.source]}`}>
+                      {SOURCE_LABEL[item.source]}
+                    </span>
+                    {item.syncedLyrics && (
+                      <span className="px-2 py-px rounded-full text-[10px] font-bold bg-amber-400/15 text-amber-300">
+                        Sincronizada
+                      </span>
                     )}
-                    {item.source === 'general' ? 'Abrir' : 'Extraer'}
-                  </button>
+                  </div>
                 </div>
-              ))}
+                <button
+                  onClick={() => pickResult(item)}
+                  disabled={fetchingId === item.id}
+                  className="flex items-center gap-1 h-8 px-3 rounded-full text-[11px] font-extrabold shrink-0 bg-[oklch(0.82_0.14_75)] text-[#17130a] disabled:opacity-60"
+                >
+                  {fetchingId === item.id ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : item.source === 'general' ? (
+                    <FolderOpen className="w-3 h-3" />
+                  ) : (
+                    <Download className="w-3 h-3" />
+                  )}
+                  {item.source === 'general' ? 'Abrir' : 'Extraer'}
+                </button>
+              </div>
+            ))}
           </div>
         )}
       </div>

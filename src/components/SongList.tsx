@@ -584,7 +584,7 @@ export function SongList({
                 <div
                   key={song.id}
                   onClick={() => onSelectSong(song)}
-                  className={`group py-2 pl-2.5 pr-1.5 rounded-[22px] flex items-center gap-3 cursor-pointer transition-all hover:bg-white/10 active:scale-[0.99] ${GLASS}`}
+                  className={`group py-2 pl-2.5 pr-1 rounded-[22px] flex items-center gap-2.5 cursor-pointer transition-all hover:bg-white/10 active:scale-[0.99] ${GLASS}`}
                 >
                   <div
                     className="w-11 h-11 rounded-[14px] shrink-0 flex items-center justify-center text-lg font-extrabold text-[#0a0a0e]/75"
@@ -608,12 +608,12 @@ export function SongList({
                   <div className="flex items-center shrink-0">
                     <button
                       onClick={(e) => handleToggleFav(e, song.id)}
-                      className={`relative w-9 h-9 rounded-full flex items-center justify-center transition-colors ${
+                      className={`relative w-7 h-8 rounded-full flex items-center justify-center transition-colors ${
                         song.isFavorite ? 'text-[oklch(0.75_0.17_10)]' : 'text-[color:var(--ink)]/40 hover:text-[color:var(--ink)]'
                       }`}
                       title="Marcar como favorita"
                     >
-                      <Heart className={`w-[18px] h-[18px] ${song.isFavorite ? 'fill-current' : ''}`} />
+                      <Heart className={`w-[17px] h-[17px] ${song.isFavorite ? 'fill-current' : ''}`} />
                       {burst?.id === song.id && <FavBurst key={burst.n} text={burst.text} />}
                     </button>
                     <button
@@ -621,21 +621,21 @@ export function SongList({
                         e.stopPropagation();
                         setPickerSongId(song.id);
                       }}
-                      className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
+                      className={`w-7 h-8 rounded-full flex items-center justify-center transition-colors ${
                         song.groupIds?.some((id) => groups.some((g) => g.id === id))
                           ? 'text-[oklch(0.82_0.14_75)]'
                           : 'text-[color:var(--ink)]/30 hover:text-[color:var(--ink)]'
                       }`}
                       title="Agregar a grupos"
                     >
-                      <FolderPlus className="w-[15px] h-[15px]" />
+                      <FolderPlus className="w-[14px] h-[14px]" />
                     </button>
                     <button
                       onClick={(e) => handleDeleteSong(e, song.id)}
-                      className="w-8 h-8 rounded-full flex items-center justify-center text-[color:var(--ink)]/30 hover:text-[oklch(0.75_0.17_10)] transition-colors"
+                      className="w-7 h-8 rounded-full flex items-center justify-center text-[color:var(--ink)]/30 hover:text-[oklch(0.75_0.17_10)] transition-colors"
                       title="Eliminar canción"
                     >
-                      <Trash2 className="w-[15px] h-[15px]" />
+                      <Trash2 className="w-[14px] h-[14px]" />
                     </button>
                   </div>
                 </div>
