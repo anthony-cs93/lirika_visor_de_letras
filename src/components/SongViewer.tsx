@@ -198,10 +198,38 @@ export function SongViewer({
     row.scrollTo({ left: Math.max(0, left), behavior: 'smooth' });
   }, [currentBlockIndex]);
 
+  // While a chip-triggered smooth scroll runs, scroll events must not overwrite the chosen section
+  const syncLockUntil = useRef(0);
+  const syncLockMax = useRef(0);
+
   const jumpToBlock = (bIndex: number) => {
     const clampedIndex = Math.max(0, Math.min(blocks.length - 1, bIndex));
     setCurrentBlockIndex(clampedIndex);
-    if (displayMode === 'standard') setCenterTick((t) => t + 1);
+    if (displayMode === 'standard') {
+      syncLockUntil.current = Date.now() + 900;
+      syncLockMax.current = Date.now() + 2500;
+      setCenterTick((t) => t + 1);
+    }
+  };
+
+  // Full mode: the active chip follows what is on screen (reading line ~30% down the visible area)
+  const syncSectionWithScroll = () => {
+    const now = Date.now();
+    if (now < syncLockUntil.current) {
+      // Still animating towards the tapped chip: keep the lock while scroll events keep coming (capped)
+      syncLockUntil.current = Math.min(Math.max(syncLockUntil.current, now + 150), syncLockMax.current);
+      return;
+    }
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const probe = container.scrollTop + (container.clientHeight - 80) * 0.3;
+    let active = 0;
+    for (let i = 0; i < blocks.length; i++) {
+      const el = blockRefs.current.get(i);
+      if (el && blockTop(el, container) <= probe) active = i;
+    }
+    if (container.scrollTop + container.clientHeight >= container.scrollHeight - 5) active = blocks.length - 1;
+    setCurrentBlockIndex(active);
   };
 
   useEffect(() => {
@@ -209,12 +237,8 @@ export function SongViewer({
     const el = blockRefs.current.get(currentBlockIndex);
     const container = scrollContainerRef.current;
     if (!el || !container) return;
-    // Center the section in the area above the dock (the bottom ~130px is covered by controls)
-    const visibleHeight = container.clientHeight - 130;
-    container.scrollTo({
-      top: blockTop(el, container) - (visibleHeight - el.offsetHeight) / 2,
-      behavior: 'smooth',
-    });
+    // Bring the section to the top of the view (the bottom ~80px is covered by controls)
+    container.scrollTo({ top: Math.max(0, blockTop(el, container) - 8), behavior: 'smooth' });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [centerTick]);
 
@@ -262,15 +286,6 @@ export function SongViewer({
           if (container.scrollTop + container.clientHeight >= container.scrollHeight - 5) {
             setIsScrolling(false);
             return;
-          }
-
-          // Determine current active section based on scroll offset
-          for (let i = blocks.length - 1; i >= 0; i--) {
-            const el = blockRefs.current.get(i);
-            if (el && blockTop(el, container) <= container.scrollTop + 140) {
-              setCurrentBlockIndex(i);
-              break;
-            }
           }
         }
 
@@ -405,21 +420,21 @@ export function SongViewer({
 
       <div className="relative z-10 flex flex-col h-full">
         {/* Header */}
-        <div className={`flex items-center gap-2.5 px-4 shrink-0 ${isLive ? 'pt-4' : 'pt-9'}`}>
+        <div className={`flex items-center gap-2.5 px-4 shrink-0 pt-4`}>
           <button
             onClick={onBack}
-            className={`${isLive ? 'w-9 h-9' : 'w-[42px] h-[42px]'} rounded-full flex items-center justify-center shrink-0 hover:bg-white/15 ${GLASS}`}
+            className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 hover:bg-white/15 ${GLASS}`}
             title="Volver"
           >
             <ChevronLeft className="w-6 h-6" />
           </button>
           <div className="flex-1 min-w-0 text-center">
-            <div className={`${isLive ? 'text-[15px]' : 'text-[22.5px]'} leading-tight font-extrabold truncate`}>{song.title}</div>
-            <div className={`${isLive ? 'text-xs' : 'text-[18px]'} leading-tight opacity-60 truncate`}>{song.artist}</div>
+            <div className={`text-[15px] leading-tight font-extrabold truncate`}>{song.title}</div>
+            <div className={`text-xs leading-tight opacity-60 truncate`}>{song.artist}</div>
           </div>
           <button
             onClick={handleToggleFav}
-            className={`relative ${isLive ? 'w-9 h-9' : 'w-[42px] h-[42px]'} rounded-full flex items-center justify-center shrink-0 hover:bg-white/15 ${GLASS} ${
+            className={`relative w-9 h-9 rounded-full flex items-center justify-center shrink-0 hover:bg-white/15 ${GLASS} ${
               isFav ? 'text-[oklch(0.75_0.17_10)]' : ''
             }`}
             title="Favorito"
@@ -430,11 +445,11 @@ export function SongViewer({
         </div>
 
         {/* Mode switch */}
-        <div className={`flex justify-center shrink-0 ${isLive ? 'pt-2' : 'pt-3.5'}`}>
-          <div className={`flex rounded-full ${isLive ? 'p-0.5' : 'p-1'} ${GLASS}`}>
+        <div className={`flex justify-center shrink-0 pt-2`}>
+          <div className={`flex rounded-full p-0.5 ${GLASS}`}>
             <button
               onClick={() => setDisplayMode('standard')}
-              className={`${isLive ? 'px-3.5 py-1 text-[11px]' : 'px-5 py-2 text-[13px]'} rounded-full font-extrabold transition-all ${
+              className={`px-3.5 py-1 text-[11px] rounded-full font-extrabold transition-all ${
                 !isLive ? AMBER : ''
               }`}
             >
@@ -442,7 +457,7 @@ export function SongViewer({
             </button>
             <button
               onClick={() => setDisplayMode('live')}
-              className={`${isLive ? 'px-3.5 py-1 text-[11px]' : 'px-5 py-2 text-[13px]'} rounded-full font-extrabold transition-all ${
+              className={`px-3.5 py-1 text-[11px] rounded-full font-extrabold transition-all ${
                 isLive ? AMBER : ''
               }`}
             >
@@ -451,9 +466,9 @@ export function SongViewer({
           </div>
         </div>
 
-        {/* Section chips */}
+        {/* Section chips: tap to jump; in Full the active one follows the scroll position */}
         {sectionMarks.length > 0 && (
-          <div ref={chipsRef} className={`flex gap-2 px-4 overflow-x-auto no-scrollbar shrink-0 ${isLive ? 'pt-2' : 'pt-3.5'}`}>
+          <div ref={chipsRef} className={`flex gap-2 px-4 overflow-x-auto no-scrollbar shrink-0 pt-2`}>
             {sectionMarks.map((sec, sIdx) => {
               const isCurrent = currentBlockIndex === sec.blockIndex;
               return (
@@ -540,47 +555,29 @@ export function SongViewer({
         ) : (
           <div
             ref={scrollContainerRef}
+            onScroll={syncSectionWithScroll}
             onTouchStart={handleTouchStart}
             onTouchEnd={handleTouchEnd}
-            className="flex-1 overflow-y-auto no-scrollbar px-4 pt-4 pb-44 scroll-smooth focus:outline-none [mask-image:linear-gradient(transparent,#000_14px,#000_calc(100%-150px),transparent)]"
+            className="flex-1 overflow-y-auto no-scrollbar px-4 pt-4 pb-28 scroll-smooth focus:outline-none [mask-image:linear-gradient(transparent,#000_14px,#000_calc(100%-100px),transparent)]"
           >
-            <div className={`flex flex-col gap-3 ${textStyleClasses}`} style={{ fontSize: `${fontSize}px` }}>
-              {blocks.map((block, index) => {
-                const isSelected = currentBlockIndex === index;
-                const isChorus = block.sectionType === 'chorus' && highlightChorus;
-                return (
-                  <div
-                    key={block.id || index}
-                    ref={(el) => {
-                      if (el) blockRefs.current.set(index, el);
-                    }}
-                    onClick={() => jumpToBlock(index)}
-                    className={`shrink-0 px-[18px] py-4 rounded-[26px] cursor-pointer backdrop-blur-xl border transition-all duration-300 ${
-                      isSelected
-                        ? 'bg-white/[0.12] border-white/[0.26] opacity-100'
-                        : isChorus
-                        ? 'bg-[oklch(0.75_0.14_75_/_0.1)] border-[oklch(0.8_0.13_75_/_0.3)] opacity-50'
-                        : 'bg-white/[0.04] border-white/[0.08] opacity-50'
-                    }`}
-                  >
-                    <div
-                      className={`text-[11px] font-extrabold tracking-[0.14em] uppercase mb-2 ${
-                        isSelected || isChorus ? 'text-[oklch(0.85_0.13_75)]' : 'text-[color:var(--ink)]/55'
-                      }`}
-                    >
-                      {block.sectionLabel}
-                    </div>
-                    {block.lines.map((line, lIdx) => (
-                      <div
-                        key={lIdx}
-                        className={`leading-[1.45] tracking-tight ${isSelected ? 'font-bold' : 'font-medium'}`}
-                      >
-                        {line}
-                      </div>
-                    ))}
+            <div className={`flex flex-col gap-7 ${textStyleClasses}`} style={{ fontSize: `${fontSize}px` }}>
+              {blocks.map((block, index) => (
+                <div
+                  key={block.id || index}
+                  ref={(el) => {
+                    if (el) blockRefs.current.set(index, el);
+                  }}
+                >
+                  <div className="text-[11px] font-extrabold tracking-[0.14em] uppercase mb-2 text-[oklch(0.85_0.13_75)]">
+                    {block.sectionLabel}
                   </div>
-                );
-              })}
+                  {block.lines.map((line, lIdx) => (
+                    <div key={lIdx} className="leading-[1.45] tracking-tight font-semibold">
+                      {line}
+                    </div>
+                  ))}
+                </div>
+              ))}
               <div className="py-8 text-center text-xs opacity-40">Fin de la canción</div>
             </div>
           </div>
@@ -594,9 +591,10 @@ export function SongViewer({
           </div>
         )}
 
-        {/* Floating section navigation (outside the dock) */}
+        {/* Floating section navigation (outside the dock). Live only: Full navigates by scrolling */}
+        {isLive && (
         <div
-          className={`absolute right-3.5 ${isLive ? 'bottom-[84px]' : 'bottom-[118px]'} z-10 flex flex-col gap-1.5 p-1.5 rounded-full ${DOCK} ring-1 ring-[oklch(0.82_0.14_75_/_0.45)] transition-all duration-200 ${
+          className={`absolute right-3.5 bottom-[84px] z-10 flex flex-col gap-1.5 p-1.5 rounded-full ${DOCK} ring-1 ring-[oklch(0.82_0.14_75_/_0.45)] transition-all duration-200 ${
             panel ? 'opacity-0 pointer-events-none translate-y-2' : ''
           }`}
         >
@@ -609,19 +607,20 @@ export function SongViewer({
               onClick={onClick}
               disabled={disabled}
               title={title}
-              className={`${isLive ? 'w-10 h-10' : 'w-[52px] h-[52px]'} rounded-full flex items-center justify-center transition-all active:scale-90 ${AMBER} shadow-[0_6px_18px_oklch(0.72_0.15_70_/_0.45)] disabled:opacity-30 disabled:shadow-none disabled:grayscale`}
+              className={`w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-90 ${AMBER} shadow-[0_6px_18px_oklch(0.72_0.15_70_/_0.45)] disabled:opacity-30 disabled:shadow-none disabled:grayscale`}
             >
-              <Icon className={isLive ? 'w-6 h-6' : 'w-7 h-7'} strokeWidth={3.2} />
+              <Icon className={'w-6 h-6'} strokeWidth={3.2} />
             </button>
           ))}
         </div>
+        )}
 
         {/* Option panels (one per dock button) */}
         {panel && (
           <div
             key={panel}
             ref={panelRef}
-            className={`absolute left-3.5 right-3.5 ${isLive ? 'bottom-[84px]' : 'bottom-[118px]'} z-20 p-[18px] rounded-[28px] bg-[color:var(--sheet)] border border-white/[0.18] backdrop-blur-3xl shadow-[0_20px_60px_rgba(0,0,0,0.5)] flex flex-col gap-3.5 max-h-[55%] overflow-y-auto no-scrollbar animate-[sheetIn_0.22s_cubic-bezier(0.2,0.9,0.3,1)]`}
+            className={`absolute left-3.5 right-3.5 bottom-[84px] z-20 p-[18px] rounded-[28px] bg-[color:var(--sheet)] border border-white/[0.18] backdrop-blur-3xl shadow-[0_20px_60px_rgba(0,0,0,0.5)] flex flex-col gap-3.5 max-h-[55%] overflow-y-auto no-scrollbar animate-[sheetIn_0.22s_cubic-bezier(0.2,0.9,0.3,1)]`}
           >
             {panel === 'aa' && (
               <>
@@ -772,7 +771,7 @@ export function SongViewer({
         {/* Dock */}
         <div
           ref={dockRef}
-          className={`absolute left-3.5 right-3.5 ${isLive ? 'bottom-3 h-[58px]' : 'bottom-6 h-[84px]'} rounded-full px-3 z-10 grid grid-cols-[1fr_auto_1fr] items-center ${DOCK}`}
+          className={`absolute left-3.5 right-3.5 bottom-3 h-[58px] rounded-full px-3 z-10 grid grid-cols-[1fr_auto_1fr] items-center ${DOCK}`}
         >
           <div className="flex items-center justify-evenly">
             {(
@@ -785,7 +784,7 @@ export function SongViewer({
                 key={id}
                 onClick={() => togglePanel(id)}
                 title={title}
-                className={`${isLive ? 'w-8 h-8' : 'w-10 h-10'} rounded-full flex items-center justify-center text-[15px] font-extrabold transition-all duration-150 active:scale-90 ${
+                className={`w-8 h-8 rounded-full flex items-center justify-center text-[15px] font-extrabold transition-all duration-150 active:scale-90 ${
                   panel === id ? `${AMBER} animate-[pop_0.28s_ease-out]` : 'bg-white/[0.09]'
                 }`}
               >
@@ -804,7 +803,7 @@ export function SongViewer({
 
           <button
             onClick={startWithCountdown}
-            className={`mx-1 ${isLive ? 'w-11 h-11' : 'w-[62px] h-[62px]'} rounded-full flex items-center justify-center shadow-[0_8px_28px_oklch(0.72_0.15_70_/_0.5)] active:scale-95 transition-transform ${AMBER}`}
+            className={`mx-1 w-11 h-11 rounded-full flex items-center justify-center shadow-[0_8px_28px_oklch(0.72_0.15_70_/_0.5)] active:scale-95 transition-transform ${AMBER}`}
             title={isScrolling ? 'Pausar auto-avance' : 'Auto-avance'}
           >
             {isScrolling ? <Pause className="w-6 h-6 fill-current" /> : <Play className="w-6 h-6 fill-current" />}
@@ -814,7 +813,7 @@ export function SongViewer({
             <button
               onClick={() => togglePanel('speed')}
               title="Velocidad del scroll"
-              className={`${isLive ? 'w-8 h-8' : 'w-10 h-10'} rounded-full flex items-center justify-center transition-all duration-150 active:scale-90 ${
+              className={`w-8 h-8 rounded-full flex items-center justify-center transition-all duration-150 active:scale-90 ${
                 panel === 'speed' ? `${AMBER} animate-[pop_0.28s_ease-out]` : 'bg-white/[0.09]'
               }`}
             >
@@ -822,7 +821,7 @@ export function SongViewer({
             </button>
             <button
               onClick={() => guard(() => onEdit(song))}
-              className={`${isLive ? 'w-8 h-8' : 'w-10 h-10'} rounded-full bg-white/[0.09] flex items-center justify-center active:scale-90 transition-transform`}
+              className={`w-8 h-8 rounded-full bg-white/[0.09] flex items-center justify-center active:scale-90 transition-transform`}
               title="Editar letra"
             >
               <Edit3 className="w-[18px] h-[18px]" />
