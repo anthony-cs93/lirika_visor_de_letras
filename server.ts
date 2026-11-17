@@ -12,7 +12,7 @@ const isProduction = process.env.NODE_ENV === 'production';
 const PORT = Number(process.env.PORT) || 3000;
 
 // Local server: Vite middleware in dev, static dist/ in production. (On Vercel, dist/ is served by the CDN and
-// the API runs from api/[...path].ts, so this file is not used there.)
+// the API runs from api/index.ts, so this file is not used there.)
 async function startServer() {
   if (!isProduction) {
     const vite = await createViteServer({
