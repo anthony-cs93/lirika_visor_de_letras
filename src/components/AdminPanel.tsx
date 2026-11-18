@@ -1,8 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { X, ShieldCheck, UserPlus, Trash2, Loader2 } from 'lucide-react';
+import { X, ShieldCheck, UserPlus, Trash2, Loader2, KeyRound, Check } from 'lucide-react';
 import { AuthUser, Role, EMAIL_MAX, adminApi, isValidEmail, sanitizeEmailInput } from '../utils/auth';
 import { ConfirmDialog } from './ConfirmDialog';
 import { useAuth } from './AuthGate';
+
+// The shared "Ingresa sin cuenta" account: its password lives in VITE_GUEST_PASSWORD, so it is not changed from here
+const GUEST_USERNAME = ((import.meta.env.VITE_GUEST_USERNAME as string | undefined) || '').trim().toLowerCase();
 
 const INPUT =
   'w-full h-10 px-3 rounded-2xl bg-white/[0.06] border border-white/15 text-sm outline-none focus:border-[oklch(0.82_0.14_75)] transition-colors placeholder:opacity-40';
@@ -20,6 +23,12 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
   const [creating, setCreating] = useState(false);
 
   const [deleteTarget, setDeleteTarget] = useState<AuthUser | null>(null);
+
+  const [passwordTarget, setPasswordTarget] = useState<AuthUser | null>(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [savingPassword, setSavingPassword] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -50,6 +59,28 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
       setError(err.message);
     } finally {
       setCreating(false);
+    }
+  };
+
+  const closePasswordDialog = () => {
+    setPasswordTarget(null);
+    setNewPassword('');
+    setPasswordError(null);
+  };
+
+  const handleChangePassword = async () => {
+    if (!passwordTarget || savingPassword) return;
+    if (newPassword.length < 8) return setPasswordError('Mínimo 8 caracteres');
+    setSavingPassword(true);
+    try {
+      await adminApi.update(passwordTarget.id, { password: newPassword });
+      setNotice(`Contraseña de ${passwordTarget.username} actualizada`);
+      setTimeout(() => setNotice(null), 3000);
+      closePasswordDialog();
+    } catch (err: any) {
+      setPasswordError(err.message);
+    } finally {
+      setSavingPassword(false);
     }
   };
 
@@ -86,6 +117,38 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
         ]}
       />
 
+      <ConfirmDialog
+        open={!!passwordTarget}
+        icon={<KeyRound className="w-6 h-6" />}
+        title={passwordTarget ? `Nueva contraseña para "${passwordTarget.username}"` : ''}
+        message={
+          <span className="block mt-1">
+            <input
+              autoFocus
+              type="text"
+              autoComplete="off"
+              maxLength={128}
+              placeholder="Mínimo 8 caracteres"
+              value={newPassword}
+              onChange={(e) => {
+                setNewPassword(e.target.value);
+                setPasswordError(null);
+              }}
+              onKeyDown={(e) => e.key === 'Enter' && handleChangePassword()}
+              className="w-full h-11 px-4 rounded-full bg-white/[0.08] border border-white/15 text-sm text-[color:var(--ink)] outline-none focus:border-[oklch(0.82_0.14_75)]"
+            />
+            <span role="alert" className={`block mt-2 text-xs font-bold text-[oklch(0.7_0.19_22)] ${passwordError ? '' : 'hidden'}`}>
+              {passwordError}
+            </span>
+          </span>
+        }
+        onClose={closePasswordDialog}
+        actions={[
+          { label: 'Cancelar', onClick: closePasswordDialog },
+          { label: savingPassword ? 'Guardando…' : 'Guardar', tone: 'primary', onClick: handleChangePassword },
+        ]}
+      />
+
       <div className="w-full max-w-lg bg-[color:var(--sheet)] backdrop-blur-xl border border-white/10 text-[color:var(--ink)] rounded-2xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/10 shrink-0">
           <div className="flex items-center gap-2">
@@ -102,6 +165,11 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="p-5 overflow-y-auto space-y-5 text-sm">
+          {notice && (
+            <div className="px-3 py-2 rounded-2xl bg-emerald-950 border border-emerald-900 text-emerald-300 text-xs font-semibold flex items-center gap-2">
+              <Check className="w-4 h-4 shrink-0" /> {notice}
+            </div>
+          )}
           {error && (
             <div
               role="alert"
@@ -161,6 +229,7 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
             ) : (
               users.map((u) => {
                 const isSelf = u.id === me.id;
+                const isGuest = !!GUEST_USERNAME && u.username === GUEST_USERNAME;
                 return (
                   <div
                     key={u.id}
@@ -178,6 +247,16 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
                           : 'nunca ha entrado'}
                       </div>
                     </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        title={isGuest ? 'La contraseña de la cuenta compartida se cambia en VITE_GUEST_PASSWORD' : 'Cambiar contraseña'}
+                        aria-label={`Cambiar contraseña de ${u.username}`}
+                        disabled={isGuest}
+                        onClick={() => setPasswordTarget(u)}
+                        className="w-9 h-9 rounded-full flex items-center justify-center bg-white/[0.09] hover:bg-white/15 active:scale-90 transition disabled:opacity-30 disabled:cursor-not-allowed"
+                      >
+                        <KeyRound className="w-4 h-4" />
+                      </button>
                     <button
                       title={isSelf ? 'No puedes eliminar tu propia cuenta' : 'Eliminar usuario'}
                       aria-label={`Eliminar a ${u.username}`}
@@ -187,6 +266,7 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
+                    </div>
                   </div>
                 );
               })

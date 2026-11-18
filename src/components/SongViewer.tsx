@@ -492,7 +492,8 @@ export function SongViewer({
 
       <div className="relative z-10 flex flex-col h-full">
         {/* Header */}
-        <div className={`flex items-center gap-2.5 px-4 shrink-0 pt-4`}>
+        {/* Equal side columns keep the title centered regardless of how many buttons sit on each side */}
+        <div className="grid grid-cols-[80px_minmax(0,1fr)_80px] items-center gap-2 px-4 shrink-0 pt-4">
           <button
             onClick={onBack}
             className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 hover:bg-white/15 ${GLASS}`}
@@ -500,10 +501,11 @@ export function SongViewer({
           >
             <ChevronLeft className="w-6 h-6" />
           </button>
-          <div className="flex-1 min-w-0 text-center">
+          <div className="min-w-0 text-center">
             <div className={`text-[15px] leading-tight font-extrabold truncate`}>{song.title}</div>
             <div className={`text-xs leading-tight opacity-60 truncate`}>{song.artist}</div>
           </div>
+          <div className="flex items-center justify-end gap-2">
           <button
             onClick={() => setShareOpen(true)}
             className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 hover:bg-white/15 ${GLASS}`}
@@ -522,6 +524,7 @@ export function SongViewer({
             <Heart className={`w-[18px] h-[18px] ${isFav ? 'fill-current' : ''}`} />
             {burst && <FavBurst key={burst.n} text={burst.text} />}
           </button>
+          </div>
         </div>
 
         {/* Mode switch */}

@@ -21,6 +21,8 @@ import {
   ShieldCheck,
   FolderPlus,
   Folder,
+  ArrowUp,
+  ArrowDown,
   Pencil,
 } from 'lucide-react';
 import { Song, CloudSyncStatus } from '../types/song';
@@ -70,6 +72,30 @@ export function SongList({
   // Message floating above the heart that was just pressed (n makes each press a fresh animation)
   const [burst, setBurst] = useState<{ id: string; text: string; n: number } | null>(null);
   const burstTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // Sort order for the list: alphabetical (title) or date added; tapping the active option flips its direction
+  const [sort, setSort] = useState<{ by: 'alpha' | 'date'; dir: 'asc' | 'desc' }>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('lirika_sort') || 'null');
+      if ((saved?.by === 'alpha' || saved?.by === 'date') && (saved?.dir === 'asc' || saved?.dir === 'desc')) return saved;
+    } catch {
+      /* storage unavailable */
+    }
+    return { by: 'date', dir: 'desc' };
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem('lirika_sort', JSON.stringify(sort));
+    } catch {
+      /* storage unavailable */
+    }
+  }, [sort]);
+  const pickSort = (by: 'alpha' | 'date') =>
+    setSort((cur) =>
+      cur.by === by
+        ? { by, dir: cur.dir === 'asc' ? 'desc' : 'asc' }
+        : { by, dir: by === 'alpha' ? 'asc' : 'desc' } // A-Z and newest first by default
+    );
+
   const [filterTab, setFilterTab] = useState<string>('all'); // 'all' | 'favorites' | 'uploaded' | 'chorus' | `group:<id>`
 
   // Groups (folders): up to MAX_GROUPS, shown after "Favoritas"
@@ -173,6 +199,14 @@ export function SongList({
 
     return true;
   });
+  const sign = sort.dir === 'asc' ? 1 : -1;
+  // Alphabetical order ignores leading punctuation, so "¿Quién es?" is filed under Q
+  const sortKey = (title: string) => title.replace(/^[^\p{L}\p{N}]+/u, '');
+  filteredSongs.sort((a, b) =>
+    sort.by === 'alpha'
+      ? sign * sortKey(a.title).localeCompare(sortKey(b.title), 'es', { sensitivity: 'base' })
+      : sign * (new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+  );
 
   const handleDeleteSong = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
@@ -473,6 +507,42 @@ export function SongList({
             </button>
           )}
         </div>
+
+        {!isSearchingOnline && (
+          <div className="flex items-center gap-2 px-5 pb-2.5 shrink-0">
+            <span className="text-[11px] font-bold uppercase tracking-wider opacity-45">Ordenar</span>
+            {([
+              ['alpha', 'A–Z'],
+              ['date', 'Fecha'],
+            ] as const).map(([by, label]) => {
+              const active = sort.by === by;
+              const Arrow = sort.dir === 'asc' ? ArrowUp : ArrowDown;
+              return (
+                <button
+                  key={by}
+                  onClick={() => pickSort(by)}
+                  title={
+                    by === 'alpha'
+                      ? active && sort.dir === 'desc'
+                        ? 'Alfabético: Z–A'
+                        : 'Alfabético: A–Z'
+                      : active && sort.dir === 'asc'
+                        ? 'Fecha: más antiguas primero'
+                        : 'Fecha: más recientes primero'
+                  }
+                  className={`shrink-0 flex items-center gap-1 h-7 px-3 rounded-full text-[11px] font-bold border transition-all ${
+                    active
+                      ? 'bg-[oklch(0.82_0.14_75_/_0.18)] text-[oklch(0.85_0.13_75)] border-[oklch(0.82_0.14_75_/_0.5)]'
+                      : 'bg-white/[0.05] border-white/[0.1] text-[color:var(--ink)]/70'
+                  }`}
+                >
+                  {by === 'alpha' && active && sort.dir === 'desc' ? 'Z–A' : label}
+                  {active && <Arrow className="w-3 h-3" />}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {activeGroup && !isSearchingOnline && (
           <div className="flex items-center gap-4 px-6 -mt-1 pb-2 text-xs font-bold opacity-70 shrink-0">

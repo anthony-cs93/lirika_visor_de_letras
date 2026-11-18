@@ -315,6 +315,9 @@ export function setupAuth(app: express.Express, db: Client) {
         args.push(active);
       }
       if (req.body?.password !== undefined) {
+        if (GUEST_USERNAME && target.username === GUEST_USERNAME) {
+          return res.status(400).json({ error: 'La contraseña de la cuenta compartida se define en VITE_GUEST_PASSWORD' });
+        }
         if (!validPassword(req.body.password)) {
           return res.status(400).json({ error: `La contraseña debe tener entre ${PASSWORD_MIN} y ${PASSWORD_MAX} caracteres` });
         }
