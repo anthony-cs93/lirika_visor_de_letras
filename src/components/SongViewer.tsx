@@ -393,6 +393,54 @@ export function SongViewer({
     }
   };
 
+  // Live: a single scroll gesture (wheel tick or swipe) moves to the adjacent section.
+  // If the current section is taller than the screen, it scrolls normally first and only
+  // navigates once the edge is reached.
+  const liveRef = useRef<HTMLDivElement>(null);
+  const liveNavLockUntil = useRef(0);
+  const liveTouch = useRef<{ x: number; y: number; atTop: boolean; atBottom: boolean } | null>(null);
+  const LIVE_NAV_COOLDOWN_MS = 500; // one gesture = one section (trackpads/inertia emit many wheel events)
+
+  const liveEdges = () => {
+    const c = liveRef.current;
+    if (!c) return { atTop: true, atBottom: true };
+    return { atTop: c.scrollTop <= 2, atBottom: c.scrollTop + c.clientHeight >= c.scrollHeight - 2 };
+  };
+
+  const liveGo = (direction: 1 | -1) => {
+    const now = Date.now();
+    if (now < liveNavLockUntil.current) return;
+    liveNavLockUntil.current = now + LIVE_NAV_COOLDOWN_MS;
+    if (direction === 1) handleNextSection();
+    else handlePrevSection();
+  };
+
+  const handleLiveWheel = (e: React.WheelEvent) => {
+    if (Math.abs(e.deltaY) < 8 || Math.abs(e.deltaY) < Math.abs(e.deltaX)) return;
+    const { atTop, atBottom } = liveEdges();
+    if (e.deltaY > 0 && atBottom) liveGo(1);
+    else if (e.deltaY < 0 && atTop) liveGo(-1);
+  };
+
+  const handleLiveTouchStart = (e: React.TouchEvent) => {
+    handleTouchStart();
+    const t = e.touches[0];
+    liveTouch.current = { x: t.clientX, y: t.clientY, ...liveEdges() };
+  };
+
+  const handleLiveTouchEnd = (e: React.TouchEvent) => {
+    handleTouchEnd();
+    const start = liveTouch.current;
+    liveTouch.current = null;
+    if (!start) return;
+    const t = e.changedTouches[0];
+    const dy = start.y - t.clientY; // > 0: finger moved up (content scrolls down)
+    const dx = start.x - t.clientX;
+    if (Math.abs(dy) < 45 || Math.abs(dy) < Math.abs(dx)) return;
+    if (dy > 0 && start.atBottom) liveGo(1);
+    else if (dy < 0 && start.atTop) liveGo(-1);
+  };
+
   const handleTouchStart = () => {
     if (isScrolling) setIsPausedByTouch(true);
   };
@@ -424,6 +472,12 @@ export function SongViewer({
   const nextBlock = currentBlockIndex < blocks.length - 1 ? blocks[currentBlockIndex + 1] : null;
 
   const AMBER = 'bg-[oklch(0.82_0.14_75)] text-[#17130a]';
+  // "Resaltar coro": chorus sections get an amber bar and tint (the rest of the text stays untouched)
+  const CHORUS_HIGHLIGHT =
+    'rounded-[20px] border-l-[4px] border-[oklch(0.82_0.14_75)] bg-[oklch(0.82_0.14_75_/_0.16)] shadow-[inset_0_0_0_1px_oklch(0.82_0.14_75_/_0.18)]';
+  // Live: same outline as Full but with a more translucent fill (0.07 vs 0.16), since the section is already centered on screen
+  const CHORUS_HIGHLIGHT_LIVE =
+    'rounded-[20px] border-l-[4px] border-[oklch(0.82_0.14_75)] bg-[oklch(0.82_0.14_75_/_0.07)] shadow-[inset_0_0_0_1px_oklch(0.82_0.14_75_/_0.18)]';
   const GLASS = 'bg-white/[0.07] border border-white/[0.14] backdrop-blur-xl';
   const DOCK = 'bg-[color:var(--dock)] border border-white/[0.16] backdrop-blur-2xl shadow-[0_12px_40px_rgba(0,0,0,0.45)]';
   const isLive = displayMode === 'live';
@@ -576,9 +630,11 @@ export function SongViewer({
         {/* Lyrics */}
         {isLive ? (
           <div
+            ref={liveRef}
             className="flex-1 flex flex-col justify-center gap-[18px] px-5 pb-24 overflow-y-auto no-scrollbar"
-            onTouchStart={handleTouchStart}
-            onTouchEnd={handleTouchEnd}
+            onWheel={handleLiveWheel}
+            onTouchStart={handleLiveTouchStart}
+            onTouchEnd={handleLiveTouchEnd}
           >
             <div
               key={`prev-${currentBlockIndex}`}
@@ -598,7 +654,9 @@ export function SongViewer({
 
             <div
               key={`cur-${currentBlockIndex}`}
-              className={`${textStyleClasses} ${slideClass}`}
+              className={`${textStyleClasses} ${slideClass} ${
+                highlightChorus && currentBlock.sectionType === 'chorus' ? `${CHORUS_HIGHLIGHT_LIVE} -mx-3 px-3 py-3` : ''
+              }`}
             >
               <div className="flex justify-between mb-4 pr-1 text-[11px] font-extrabold tracking-[0.14em] uppercase text-[oklch(0.85_0.13_75)]">
                 <span>{currentBlock.sectionLabel}</span>
@@ -644,23 +702,27 @@ export function SongViewer({
             className="flex-1 overflow-y-auto no-scrollbar px-4 pt-4 pb-28 scroll-smooth focus:outline-none [mask-image:linear-gradient(transparent,#000_14px,#000_calc(100%-100px),transparent)]"
           >
             <div className={`flex flex-col gap-7 ${textStyleClasses}`} style={{ fontSize: `${fontSize}px` }}>
-              {blocks.map((block, index) => (
+              {blocks.map((block, index) => {
+                const isChorus = highlightChorus && block.sectionType === 'chorus';
+                return (
                 <div
                   key={block.id || index}
                   ref={(el) => {
                     if (el) blockRefs.current.set(index, el);
                   }}
+                  className={isChorus ? `${CHORUS_HIGHLIGHT} -mx-3 px-3 py-3` : ''}
                 >
                   <div className="text-[11px] font-extrabold tracking-[0.14em] uppercase mb-2 text-[oklch(0.85_0.13_75)]">
                     {block.sectionLabel}
                   </div>
                   {block.lines.map((line, lIdx) => (
-                    <div key={lIdx} className="leading-[1.45] tracking-tight font-semibold">
+                    <div key={lIdx} className={`leading-[1.45] tracking-tight ${isChorus ? 'font-bold' : 'font-semibold'}`}>
                       {line}
                     </div>
                   ))}
                 </div>
-              ))}
+                );
+              })}
               <div className="py-8 text-center text-xs opacity-40">Fin de la canción</div>
             </div>
           </div>
