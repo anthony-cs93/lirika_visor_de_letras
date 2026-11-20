@@ -41,6 +41,7 @@ import {
   parseLyricsToBlocks,
   getSectionMarks,
   compactSectionLabel,
+  paginateLines,
 } from '../utils/lyricsParser';
 import {
   getFontFamilyClass,
@@ -149,6 +150,8 @@ export function SongViewer({
 
   // Active selected section index
   const [currentBlockIndex, setCurrentBlockIndex] = useState<number>(0);
+  // Live: current page inside a long section
+  const [livePage, setLivePage] = useState(0);
 
   // Drawer states
   const [panel, setPanel] = useState<Panel>(null);
@@ -229,7 +232,9 @@ export function SongViewer({
   const chipsRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const row = chipsRef.current;
-    const chip = row?.querySelector<HTMLElement>(`[data-chip="${currentBlockIndex}"]`);
+    // A run of repeated sections shares one chip, keyed by the first section of the run
+    const runStart = currentBlockIndex - ((sectionMarks[currentBlockIndex]?.repeat ?? 1) - 1);
+    const chip = row?.querySelector<HTMLElement>(`[data-chip="${runStart}"]`);
     if (!row || !chip) return;
     const c = chip.getBoundingClientRect();
     const r = row.getBoundingClientRect();
@@ -244,6 +249,7 @@ export function SongViewer({
   const jumpToBlock = (bIndex: number) => {
     const clampedIndex = Math.max(0, Math.min(blocks.length - 1, bIndex));
     setCurrentBlockIndex(clampedIndex);
+    setLivePage(0);
     if (displayMode === 'standard') {
       syncLockUntil.current = Date.now() + 900;
       syncLockMax.current = Date.now() + 2500;
@@ -281,15 +287,24 @@ export function SongViewer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [centerTick]);
 
+  // Live: pages of the section (split at its text breaks, else balanced when it is long)
+  const livePagesOf = (idx: number) => paginateLines(blocks[idx]?.lines ?? []).length;
+
   const handleNextSection = () => {
-    if (currentBlockIndex < blocks.length - 1) {
+    if (displayMode === 'live' && livePage < livePagesOf(currentBlockIndex) - 1) {
+      setLivePage(livePage + 1);
+    } else if (currentBlockIndex < blocks.length - 1) {
       jumpToBlock(currentBlockIndex + 1);
     }
   };
 
   const handlePrevSection = () => {
-    if (currentBlockIndex > 0) {
+    if (displayMode === 'live' && livePage > 0) {
+      setLivePage(livePage - 1);
+    } else if (currentBlockIndex > 0) {
       jumpToBlock(currentBlockIndex - 1);
+      // Going back into a long section lands on its last page
+      if (displayMode === 'live') setLivePage(livePagesOf(currentBlockIndex - 1) - 1);
     }
   };
 
@@ -335,15 +350,18 @@ export function SongViewer({
     } else {
       // In Live Mode: auto-advance section after estimated duration based on line count and scrollSpeed
       const currentBlock = blocks[currentBlockIndex];
-      const lineCount = currentBlock ? currentBlock.lines.length : 4;
+      const lineCount = currentBlock ? paginateLines(currentBlock.lines)[livePage]?.length ?? currentBlock.lines.length : 4;
       const durationMs =
         scrollMode === 'px'
           ? Math.max(3000, ((lineCount * 36) / scrollPx) * 1000)
           : Math.max(1500, (scrollSecs * 1000) / Math.max(1, blocks.length));
 
       const timer = setTimeout(() => {
-        if (currentBlockIndex < blocks.length - 1) {
+        if (livePage < livePagesOf(currentBlockIndex) - 1) {
+          setLivePage((p) => p + 1);
+        } else if (currentBlockIndex < blocks.length - 1) {
           setCurrentBlockIndex((prev) => prev + 1);
+          setLivePage(0);
         } else {
           setIsScrolling(false);
         }
@@ -358,7 +376,7 @@ export function SongViewer({
         animFrameRef.current = null;
       }
     };
-  }, [isScrolling, isPausedByTouch, scrollMode, scrollPx, scrollSecs, displayMode, blocks, currentBlockIndex]);
+  }, [isScrolling, isPausedByTouch, scrollMode, scrollPx, scrollSecs, displayMode, blocks, currentBlockIndex, livePage]);
 
   // Lead-in countdown
   const startWithCountdown = () => {
@@ -388,6 +406,7 @@ export function SongViewer({
   const resetToTop = () => {
     setIsScrolling(false);
     setCurrentBlockIndex(0);
+    setLivePage(0);
     if (scrollContainerRef.current) {
       scrollContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
     }
@@ -470,6 +489,8 @@ export function SongViewer({
   const prevBlock = currentBlockIndex > 0 ? blocks[currentBlockIndex - 1] : null;
   const currentBlock = blocks[currentBlockIndex] || blocks[0];
   const nextBlock = currentBlockIndex < blocks.length - 1 ? blocks[currentBlockIndex + 1] : null;
+  const livePageCount = livePagesOf(currentBlockIndex);
+  const liveLines = paginateLines(currentBlock.lines)[livePage] ?? currentBlock.lines;
 
   const AMBER = 'bg-[oklch(0.82_0.14_75)] text-[#17130a]';
   // "Resaltar coro": chorus sections get an amber bar and tint (the rest of the text stays untouched)
@@ -605,23 +626,32 @@ export function SongViewer({
 
         {/* Section chips: tap to jump; in Full the active one follows the scroll position */}
         {sectionMarks.length > 0 && (
-          <div ref={chipsRef} className={`flex gap-2 px-4 overflow-x-auto no-scrollbar shrink-0 pt-2`}>
-            {sectionMarks.map((sec, sIdx) => {
-              const isCurrent = currentBlockIndex === sec.blockIndex;
+          <div ref={chipsRef} className={`flex gap-2.5 px-4 pr-5 overflow-x-auto no-scrollbar shrink-0 pt-3`}>
+            {sectionMarks.filter((sec) => sec.repeat === 1).map((sec, sIdx) => {
+              // Repeated sections (same name, consecutive) collapse into this one chip
+              let count = 1;
+              while (sectionMarks[sec.blockIndex + count]?.repeat === count + 1) count++;
+              const isCurrent = currentBlockIndex >= sec.blockIndex && currentBlockIndex < sec.blockIndex + count;
               return (
-                <button
-                  key={sIdx}
-                  data-chip={sec.blockIndex}
-                  onClick={() => jumpToBlock(sec.blockIndex)}
-                  title={sec.label}
-                  className={`shrink-0 whitespace-nowrap px-3.5 py-1.5 rounded-full text-xs font-bold border transition-all ${
-                    isCurrent
-                      ? 'bg-[oklch(0.82_0.14_75)] text-[#17130a] border-[oklch(0.82_0.14_75)]'
-                      : 'bg-white/[0.07] border-white/[0.12]'
-                  }`}
-                >
-                  {compactSectionLabel(sec.label)}
-                </button>
+                <div key={sIdx} className="relative shrink-0">
+                  <button
+                    data-chip={sec.blockIndex}
+                    onClick={() => jumpToBlock(sec.blockIndex)}
+                    title={sec.label}
+                    className={`whitespace-nowrap px-3.5 py-1.5 rounded-full text-xs font-bold border transition-all ${
+                      isCurrent
+                        ? 'bg-[oklch(0.82_0.14_75)] text-[#17130a] border-[oklch(0.82_0.14_75)]'
+                        : 'bg-white/[0.07] border-white/[0.12]'
+                    }`}
+                  >
+                    {compactSectionLabel(sec.label)}
+                  </button>
+                  {count > 1 && (
+                    <span className="pointer-events-none absolute -top-2 -right-1.5 min-w-[18px] h-[16px] px-1 rounded-full bg-[#17130a] text-[oklch(0.85_0.13_75)] border border-[oklch(0.82_0.14_75)] text-[9px] font-extrabold leading-none flex items-center justify-center">
+                      x{count}
+                    </span>
+                  )}
+                </div>
               );
             })}
           </div>
@@ -659,13 +689,19 @@ export function SongViewer({
               }`}
             >
               <div className="flex justify-between mb-4 pr-1 text-[11px] font-extrabold tracking-[0.14em] uppercase text-[oklch(0.85_0.13_75)]">
-                <span>{currentBlock.sectionLabel}</span>
+                <span>
+                  {currentBlock.sectionLabel}
+                  {(sectionMarks[currentBlockIndex]?.repeat ?? 1) > 1 && (
+                    <span className="ml-1.5 opacity-80">x{sectionMarks[currentBlockIndex].repeat}</span>
+                  )}
+                </span>
                 <span className="opacity-60 text-[color:var(--ink)] tracking-wider">
+                  {livePageCount > 1 && <span className="mr-2">pág. {livePage + 1}/{livePageCount}</span>}
                   {currentBlockIndex + 1} / {blocks.length}
                 </span>
               </div>
               <div className={align === 'center' ? 'px-12' : 'pr-12'}>
-                {currentBlock.lines.map((line, i) => (
+                {liveLines.map((line, i) => (
                   <div
                     key={i}
                     className="font-extrabold tracking-tight mt-1.5 leading-[1.28]"
@@ -714,9 +750,10 @@ export function SongViewer({
                 >
                   <div className="text-[11px] font-extrabold tracking-[0.14em] uppercase mb-2 text-[oklch(0.85_0.13_75)]">
                     {block.sectionLabel}
+                    {sectionMarks[index].repeat > 1 && <span className="ml-1.5 opacity-80">x{sectionMarks[index].repeat}</span>}
                   </div>
                   {block.lines.map((line, lIdx) => (
-                    <div key={lIdx} className={`leading-[1.45] tracking-tight ${isChorus ? 'font-bold' : 'font-semibold'}`}>
+                    <div key={lIdx} className={`leading-[1.45] tracking-tight ${isChorus ? 'font-bold' : 'font-semibold'} ${line ? '' : 'h-3'}`}>
                       {line}
                     </div>
                   ))}

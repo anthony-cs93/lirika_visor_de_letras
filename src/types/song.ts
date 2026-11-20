@@ -61,6 +61,8 @@ export interface SectionMark {
   label: string;
   blockIndex: number;
   type: SectionType;
+  /** 1 for the first of a run of consecutive sections with the same name, 2+ for each one after it */
+  repeat: number;
 }
 
 export interface CloudSyncStatus {

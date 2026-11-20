@@ -92,6 +92,9 @@ export function detectSectionType(raw: string): { type: SectionType; cleanLabel:
   return { type: 'custom', cleanLabel: trimmed };
 }
 
+/** Invisible (zero-width space) line that marks a text break inside a section. */
+const LINE_BREAK_MARK = '​';
+
 /**
  * Parses raw song text into discrete blocks/stanzas.
  * Each section is separated by empty lines (un salto arriba y abajo).
@@ -138,7 +141,7 @@ export function parseLyricsToBlocks(lyrics: string): SongBlock[] {
         id: `block_${pIdx}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
         sectionType,
         sectionLabel,
-        lines: contentLines.length > 0 ? contentLines : ['(Instrumental)'],
+        lines: contentLines.length > 0 ? contentLines.map((l) => (l === LINE_BREAK_MARK ? '' : l)) : ['(Instrumental)'],
       });
     }
   });
@@ -154,7 +157,14 @@ export function blocksToLyrics(blocks: SongBlock[]): string {
   return blocks
     .map((b) => {
       const header = `[${b.sectionLabel || 'Verso'}]`;
-      const body = b.lines.filter((l) => l.trim().length > 0).join('\n');
+      // Breaks inside a section survive as an invisible line (a real blank line would start a new section);
+      // leading, trailing and repeated breaks are dropped
+      const body = b.lines
+        .map((l) => l.trim())
+        .reduce<string[]>((acc, l) => (l === '' && (acc.length === 0 || acc[acc.length - 1] === '') ? acc : [...acc, l]), [])
+        .filter((l, i, arr) => !(l === '' && i === arr.length - 1))
+        .map((l) => l || LINE_BREAK_MARK)
+        .join('\n');
       return `${header}\n${body}`;
     })
     .join('\n\n');
@@ -164,12 +174,31 @@ export function blocksToLyrics(blocks: SongBlock[]): string {
  * Extracts section marks for navigation
  */
 export function getSectionMarks(blocks: SongBlock[]): SectionMark[] {
-  return blocks.map((b, idx) => ({
-    index: idx,
-    blockIndex: idx,
-    label: b.sectionLabel,
-    type: b.sectionType,
-  }));
+  // A section repeats when it sits right after another with the same name (Coro, Coro): x2, x3...
+  const norm = (l: string) => l.trim().toLowerCase().replace(/\s+/g, ' ');
+  let run = 0;
+  return blocks.map((b, idx) => {
+    run = idx > 0 && norm(blocks[idx - 1].sectionLabel) === norm(b.sectionLabel) ? run + 1 : 1;
+    return { index: idx, blockIndex: idx, label: b.sectionLabel, type: b.sectionType, repeat: run };
+  });
+}
+
+/** Live: max lines shown at once; longer sections are split into balanced pages. */
+export const LIVE_MAX_LINES = 6;
+
+export function paginateLines(lines: string[], max = LIVE_MAX_LINES): string[][] {
+  // Text breaks ('' lines) inside the section are the first choice of page boundary
+  if (lines.some((l) => !l.trim())) {
+    const groups: string[][] = [[]];
+    lines.forEach((l) => (l.trim() ? groups[groups.length - 1].push(l) : groups.push([])));
+    const pages = groups.filter((g) => g.length > 0);
+    if (pages.length > 1) return pages;
+    lines = pages[0] ?? [];
+  }
+  if (lines.length <= max) return [lines];
+  const pages = Math.ceil(lines.length / max);
+  const size = Math.ceil(lines.length / pages);
+  return Array.from({ length: pages }, (_, i) => lines.slice(i * size, (i + 1) * size));
 }
 
 /** Numbered variants offered by the section picker in the editor. */

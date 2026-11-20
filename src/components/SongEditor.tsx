@@ -839,7 +839,7 @@ export function SongEditor({ song, onBack, onSaved }: SongEditorProps) {
                   </div>
                   {/* Stanza lines */}
                   {block.lines.map((line, lIdx) => (
-                    <div key={lIdx} className="leading-relaxed">
+                    <div key={lIdx} className={`leading-relaxed ${line ? '' : 'h-3'}`}>
                       {line}
                     </div>
                   ))}
