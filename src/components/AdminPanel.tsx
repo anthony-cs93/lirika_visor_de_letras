@@ -218,6 +218,8 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
             </div>
           </form>
 
+          <GuestSeedSection />
+
           <div className="space-y-2">
             <label className="block text-xs font-semibold text-zinc-400 uppercase tracking-wider">
               Usuarios ({users.length})
@@ -273,6 +275,121 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
             )}
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** Picks which songs of the shared catalog are preloaded into the guest account ("Ingresa sin cuenta"). */
+function GuestSeedSection() {
+  const [songs, setSongs] = useState<{ id: string; title: string; artist: string }[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [saved, setSaved] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+
+  useEffect(() => {
+    adminApi
+      .guestSeed()
+      .then((d) => {
+        setSongs(d.songs);
+        setSelected(new Set(d.selected));
+        setSaved(new Set(d.selected));
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const toggle = (id: string) =>
+    setSelected((cur) => {
+      const next = new Set(cur);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+
+  const dirty = selected.size !== saved.size || [...selected].some((id) => !saved.has(id));
+  const q = query.trim().toLowerCase();
+  const visible = q ? songs.filter((s) => `${s.title} ${s.artist}`.toLowerCase().includes(q)) : songs;
+
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      await adminApi.saveGuestSeed([...selected]);
+      setSaved(new Set(selected));
+      setNotice('Selección guardada');
+      setTimeout(() => setNotice(null), 3000);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <label className="block text-xs font-semibold text-zinc-400 uppercase tracking-wider">
+        Canciones iniciales del invitado ({selected.size}/{songs.length})
+      </label>
+      <p className="text-[11px] text-zinc-500 leading-snug">
+        La cuenta de invitado no ve el cancionero general: tiene sus propias canciones, favoritos y grupos. Las canciones
+        marcadas se copian una sola vez a su cuenta; quitarlas después no borra las que ya recibió.
+      </p>
+      <input
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Buscar canción…"
+        className={INPUT}
+        aria-label="Buscar canción"
+      />
+      <div className="max-h-56 overflow-y-auto no-scrollbar rounded-3xl bg-black/25 border border-white/10 p-1.5">
+        {loading ? (
+          <div className="flex justify-center py-6">
+            <Loader2 className="w-5 h-5 animate-spin opacity-60" />
+          </div>
+        ) : visible.length === 0 ? (
+          <div className="py-6 text-center text-xs text-zinc-500">Sin canciones</div>
+        ) : (
+          visible.map((song) => {
+            const on = selected.has(song.id);
+            return (
+              <button
+                key={song.id}
+                type="button"
+                onClick={() => toggle(song.id)}
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-2xl text-left hover:bg-white/[0.06] transition-colors"
+              >
+                <span
+                  className={`w-5 h-5 shrink-0 rounded-md border flex items-center justify-center ${
+                    on ? 'bg-[oklch(0.82_0.14_75)] border-[oklch(0.82_0.14_75)] text-[#17130a]' : 'border-white/25'
+                  }`}
+                >
+                  {on && <Check className="w-3.5 h-3.5" strokeWidth={3.5} />}
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold truncate">{song.title}</span>
+                  {song.artist && <span className="block text-[11px] text-zinc-500 truncate">{song.artist}</span>}
+                </span>
+              </button>
+            );
+          })
+        )}
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <span role="status" className={`text-xs font-bold ${error ? 'text-[oklch(0.7_0.19_22)]' : 'text-emerald-400'}`}>
+          {error ?? notice ?? ''}
+        </span>
+        <button
+          type="button"
+          onClick={save}
+          disabled={!dirty || saving}
+          className="h-9 px-4 rounded-full bg-[oklch(0.82_0.14_75)] text-[#17130a] text-xs font-extrabold disabled:opacity-40 active:scale-95 transition"
+        >
+          {saving ? '...' : 'Guardar selección'}
+        </button>
       </div>
     </div>
   );

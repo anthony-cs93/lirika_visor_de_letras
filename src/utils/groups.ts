@@ -1,4 +1,5 @@
 import { apiFetch } from './auth';
+import { getStorageUserId } from './storage';
 
 export interface SongGroup {
   id: string;
@@ -9,11 +10,12 @@ export interface SongGroup {
 export const MAX_GROUPS = 5;
 export const GROUP_NAME_MAX = 20;
 
-const CACHE_KEY = 'lirika_groups_v1';
+// Cached per account: every account has its own groups
+const cacheKey = () => `lirika_groups_v1:${getStorageUserId() ?? ''}`;
 
 export function readCachedGroups(): SongGroup[] {
   try {
-    const raw = localStorage.getItem(CACHE_KEY);
+    const raw = localStorage.getItem(cacheKey());
     return raw ? (JSON.parse(raw) as SongGroup[]) : [];
   } catch {
     return [];
@@ -22,7 +24,7 @@ export function readCachedGroups(): SongGroup[] {
 
 function writeCachedGroups(groups: SongGroup[]) {
   try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify(groups));
+    localStorage.setItem(cacheKey(), JSON.stringify(groups));
   } catch {
     // storage unavailable
   }

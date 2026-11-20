@@ -11,6 +11,8 @@ export interface AuthUser {
   username: string;
   role: Role;
   active: boolean;
+  /** The shared "Ingresa sin cuenta" account: isolated from the shared song catalog */
+  isGuest: boolean;
   createdAt: string;
   lastLoginAt: string | null;
 }
@@ -117,6 +119,7 @@ export function setupAuth(app: express.Express, db: Client) {
     username: String(r.username),
     role: r.role === 'admin' ? 'admin' : 'user',
     active: Number(r.active) === 1,
+    isGuest: Boolean(GUEST_USERNAME) && String(r.username) === GUEST_USERNAME,
     createdAt: String(r.created_at),
     lastLoginAt: r.last_login_at ? String(r.last_login_at) : null,
   });
@@ -190,6 +193,9 @@ export function setupAuth(app: express.Express, db: Client) {
 
   const validPassword = (p: unknown): p is string =>
     typeof p === 'string' && p.length >= PASSWORD_MIN && p.length <= PASSWORD_MAX;
+
+  // Handlers for routes that live in app.ts but are admin-only
+  const guard = { authReady, requireAdmin };
 
   app.post('/api/auth/login', async (req, res) => {
     try {
@@ -353,4 +359,5 @@ export function setupAuth(app: express.Express, db: Client) {
       res.status(500).json({ error: 'No se pudo eliminar la cuenta' });
     }
   });
+  return guard;
 }

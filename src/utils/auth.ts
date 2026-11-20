@@ -5,6 +5,8 @@ export interface AuthUser {
   username: string;
   role: Role;
   active: boolean;
+  /** Shared "Ingresa sin cuenta" account: it has its own private songs, favorites and groups */
+  isGuest: boolean;
   createdAt: string;
   lastLoginAt: string | null;
 }
@@ -53,6 +55,9 @@ export const adminApi = {
   update: (id: string, data: { role?: Role; active?: boolean; password?: string }) =>
     request<{ user: AuthUser }>(`/api/admin/users/${id}`, 'PATCH', data).then((r) => r.user),
   remove: (id: string) => request<{ success: boolean }>(`/api/admin/users/${id}`, 'DELETE'),
+  guestSeed: () =>
+    request<{ songs: { id: string; title: string; artist: string }[]; selected: string[] }>('/api/admin/guest-seed', 'GET'),
+  saveGuestSeed: (ids: string[]) => request<{ success: boolean }>('/api/admin/guest-seed', 'PUT', { ids }),
 };
 
 // Last signed-in user, so the offline-first app still opens without a connection

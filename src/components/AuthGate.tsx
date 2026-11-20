@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { Eye, EyeOff, Loader2, LogIn, Music, User } from 'lucide-react';
+import { setStorageUser } from '../utils/storage';
 import {
   AuthUser,
   UNAUTHORIZED_EVENT,
@@ -83,12 +84,15 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     );
   }
 
+  // Point the local cache at this account before any screen reads songs or groups
+  setStorageUser(user);
+
   if (!user) return <LoginScreen onLoggedIn={setSession} />;
 
   return <AuthContext.Provider value={{ user, logout }}>{children}</AuthContext.Provider>;
 }
 
-// Shared account for "Ingresa sin cuenta": everyone who uses it sees and edits the same songs.
+// Shared account for "Ingresa sin cuenta": it has its own songs, favorites and groups, apart from the other accounts.
 const GUEST_USERNAME = import.meta.env.VITE_GUEST_USERNAME as string | undefined;
 const GUEST_PASSWORD = import.meta.env.VITE_GUEST_PASSWORD as string | undefined;
 const REQUEST_ACCOUNT_URL = `https://wa.me/51924486717?text=${encodeURIComponent('Hola, quiero solicitar una cuenta en Lirika')}`;

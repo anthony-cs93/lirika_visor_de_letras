@@ -3,9 +3,30 @@ import { INITIAL_SONGS } from '../data/defaultSongs';
 import { stripChords } from './lyricsParser';
 import { apiFetch } from './auth';
 
-const STORAGE_KEY = 'lirika_songs_v1';
+const BASE_STORAGE_KEY = 'lirika_songs_v1';
 const SETTINGS_KEY = 'lirika_user_settings_v1';
-const LAST_SYNC_KEY = 'lirika_last_sync_timestamp';
+const BASE_LAST_SYNC_KEY = 'lirika_last_sync_timestamp';
+
+// Songs are cached per account, so signing in as someone else never shows (or uploads) another account's songs
+let storageUserId: string | null = null;
+let storageIsGuest = false;
+let STORAGE_KEY = BASE_STORAGE_KEY;
+let LAST_SYNC_KEY = BASE_LAST_SYNC_KEY;
+
+export function setStorageUser(user: { id: string; isGuest: boolean } | null) {
+  const id = user?.id ?? null;
+  if (id === storageUserId) return;
+  storageUserId = id;
+  storageIsGuest = !!user?.isGuest;
+  STORAGE_KEY = id ? `${BASE_STORAGE_KEY}:${id}` : BASE_STORAGE_KEY;
+  LAST_SYNC_KEY = id ? `${BASE_LAST_SYNC_KEY}:${id}` : BASE_LAST_SYNC_KEY;
+  syncStatusState = { ...syncStatusState, lastSyncAt: localStorage.getItem(LAST_SYNC_KEY) };
+}
+
+export const getStorageUserId = () => storageUserId;
+
+/** Songs a brand-new device starts with: the guest account starts empty (its songs come from the cloud). */
+const startingSongs = (): Song[] => (storageIsGuest ? [] : [...INITIAL_SONGS]);
 
 // Listeners for reactive updates
 type Listener = () => void;
@@ -25,17 +46,19 @@ export function subscribeToStore(listener: Listener) {
 // Raw store: includes deleted songs (tombstones with deletedAt) so deletions can sync to the cloud
 function readAllSongs(): Song[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    // Accounts other than the guest keep the songs cached before per-account storage existed
+    const raw = localStorage.getItem(STORAGE_KEY) ?? (storageIsGuest ? null : localStorage.getItem(BASE_STORAGE_KEY));
     if (!raw) {
       // First boot: initialize with default songs
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(INITIAL_SONGS));
-      return [...INITIAL_SONGS];
+      const initial = startingSongs();
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(initial));
+      return initial;
     }
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [...INITIAL_SONGS];
+    return Array.isArray(parsed) ? parsed : startingSongs();
   } catch (err) {
     console.error('Error reading songs from localStorage:', err);
-    return [...INITIAL_SONGS];
+    return startingSongs();
   }
 }
 

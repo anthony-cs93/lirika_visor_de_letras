@@ -20,7 +20,7 @@ const db = createClient({
 });
 
 // Credential login + roles; must be registered before the routes it protects
-setupAuth(app, db);
+const { authReady, requireAdmin } = setupAuth(app, db);
 
 const LEGACY_FILE = path.resolve(__dirname, 'data', 'cloud_sync.json');
 
@@ -44,6 +44,24 @@ async function initDb() {
   await db.execute(
     'CREATE TABLE IF NOT EXISTS song_groups (id TEXT PRIMARY KEY, name TEXT NOT NULL, position INTEGER NOT NULL, created_at TEXT NOT NULL)'
   );
+  // Groups belong to one user each
+  try {
+    await db.execute('ALTER TABLE song_groups ADD COLUMN user_id TEXT');
+  } catch {
+    // column already exists
+  }
+  // Private catalog of the guest account (the shared "songs" table is never visible to it)
+  await db.execute(
+    'CREATE TABLE IF NOT EXISTS user_songs (user_id TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (user_id, id))'
+  );
+  // Per-user favorites and group membership of the shared songs
+  await db.execute(
+    "CREATE TABLE IF NOT EXISTS song_meta (user_id TEXT NOT NULL, song_id TEXT NOT NULL, is_favorite INTEGER NOT NULL DEFAULT 0, group_ids TEXT NOT NULL DEFAULT '[]', updated_at TEXT NOT NULL, PRIMARY KEY (user_id, song_id))"
+  );
+  // Songs the admin picked to preload into the guest account, and which of them were already copied
+  await db.execute('CREATE TABLE IF NOT EXISTS guest_seed (song_id TEXT PRIMARY KEY)');
+  await db.execute('CREATE TABLE IF NOT EXISTS guest_seeded (song_id TEXT PRIMARY KEY)');
+  await db.execute('CREATE TABLE IF NOT EXISTS app_flags (key TEXT PRIMARY KEY)');
   // One-time import of the old local JSON store
   const { rows } = await db.execute('SELECT COUNT(*) AS n FROM songs');
   if (Number(rows[0].n) === 0 && fs.existsSync(LEGACY_FILE)) {
@@ -58,7 +76,8 @@ async function initDb() {
 
 // Deleted songs are kept forever as tombstones (deleted_at set) so they can be restored later
 
-async function getSongs(): Promise<any[]> {
+// Shared catalog (admins and regular users)
+async function getPoolSongs(): Promise<any[]> {
   const { rows } = await db.execute('SELECT data FROM songs');
   return rows.map((r) => JSON.parse(r.data as string));
 }
@@ -86,7 +105,109 @@ async function upsertSongs(songs: any[]) {
   );
 }
 
-const dbReady = initDb();
+type Me = { id: string; isGuest: boolean };
+const me = (req: express.Request) => (req as any).user as Me;
+
+// Guest account: its own songs, never the shared catalog
+async function getGuestSongs(userId: string): Promise<any[]> {
+  const { rows } = await db.execute({ sql: 'SELECT data FROM user_songs WHERE user_id = ?', args: [userId] });
+  return rows.map((r) => JSON.parse(r.data as string));
+}
+
+async function upsertGuestSongs(userId: string, songs: any[]) {
+  const valid = songs.filter((s) => s && s.id);
+  if (valid.length === 0) return;
+  await db.batch(
+    valid.map((s) => ({
+      sql: `INSERT INTO user_songs (user_id, id, data, updated_at) VALUES (?, ?, ?, ?)
+            ON CONFLICT(user_id, id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at
+            WHERE excluded.updated_at >= user_songs.updated_at`,
+      args: [userId, String(s.id), JSON.stringify(s), new Date(s.updatedAt || 0).toISOString()],
+    })),
+    'write'
+  );
+}
+
+// Copies the songs the admin picked into the guest's own catalog; each one is copied only once,
+// so what the guest later edits or deletes is not undone.
+async function seedGuest(userId: string) {
+  const { rows } = await db.execute(
+    'SELECT song_id FROM guest_seed WHERE song_id NOT IN (SELECT song_id FROM guest_seeded)'
+  );
+  if (!rows.length) return;
+  const pool = new Map((await getPoolSongs()).map((s) => [String(s.id), s]));
+  const now = new Date().toISOString();
+  const copies: any[] = [];
+  for (const r of rows) {
+    const song = pool.get(String(r.song_id));
+    if (song && !song.deletedAt) copies.push({ ...song, isFavorite: false, groupIds: [], updatedAt: now });
+  }
+  await upsertGuestSongs(userId, copies);
+  await db.batch(
+    rows.map((r) => ({ sql: 'INSERT OR IGNORE INTO guest_seeded (song_id) VALUES (?)', args: [String(r.song_id)] })),
+    'write'
+  );
+}
+
+// Everyone else: shared songs, with this user's own favorites and groups laid over them
+async function getSongsFor(user: Me): Promise<any[]> {
+  if (user.isGuest) {
+    await seedGuest(user.id);
+    return getGuestSongs(user.id);
+  }
+  const meta = new Map<string, { fav: boolean; groups: string[] }>();
+  const { rows } = await db.execute({ sql: 'SELECT song_id, is_favorite, group_ids FROM song_meta WHERE user_id = ?', args: [user.id] });
+  for (const r of rows) {
+    let groups: string[] = [];
+    try {
+      groups = JSON.parse(String(r.group_ids));
+    } catch {
+      // keep empty
+    }
+    meta.set(String(r.song_id), { fav: Number(r.is_favorite) === 1, groups });
+  }
+  return (await getPoolSongs()).map((s) => {
+    const m = meta.get(String(s.id));
+    return { ...s, isFavorite: m?.fav ?? false, groupIds: m?.groups ?? [] };
+  });
+}
+
+async function saveSongsFor(user: Me, songs: any[]) {
+  if (user.isGuest) return upsertGuestSongs(user.id, songs);
+  const valid = songs.filter((s) => s && s.id);
+  const metaStmts = valid
+    .filter((s) => s.isFavorite !== undefined || s.groupIds !== undefined)
+    .map((s) => ({
+      sql: `INSERT INTO song_meta (user_id, song_id, is_favorite, group_ids, updated_at) VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, song_id) DO UPDATE SET is_favorite = excluded.is_favorite, group_ids = excluded.group_ids,
+              updated_at = excluded.updated_at WHERE excluded.updated_at >= song_meta.updated_at`,
+      args: [user.id, String(s.id), s.isFavorite ? 1 : 0, JSON.stringify(s.groupIds ?? []), new Date(s.updatedAt || 0).toISOString()],
+    }));
+  if (metaStmts.length) await db.batch(metaStmts, 'write');
+  // Favorites/groups are personal: they are not stored in the shared song
+  await upsertSongs(valid.map(({ isFavorite, groupIds, ...shared }) => shared));
+}
+
+// Before per-user favorites/groups existed, they were global: hand them to the first admin once.
+async function migrateOwnership() {
+  await authReady;
+  const done = await db.execute("SELECT 1 FROM app_flags WHERE key = 'ownership_v1'");
+  if (done.rows.length) return;
+  const admin = (await db.execute("SELECT id FROM users WHERE role = 'admin' ORDER BY created_at ASC LIMIT 1")).rows[0];
+  if (!admin) return; // no admin yet; try again on the next start
+  const adminId = String(admin.id);
+  await db.execute({ sql: 'UPDATE song_groups SET user_id = ? WHERE user_id IS NULL', args: [adminId] });
+  const stmts = (await getPoolSongs())
+    .filter((s) => s.isFavorite || (Array.isArray(s.groupIds) && s.groupIds.length))
+    .map((s) => ({
+      sql: 'INSERT OR IGNORE INTO song_meta (user_id, song_id, is_favorite, group_ids, updated_at) VALUES (?, ?, ?, ?, ?)',
+      args: [adminId, String(s.id), s.isFavorite ? 1 : 0, JSON.stringify(s.groupIds ?? []), new Date(s.updatedAt || 0).toISOString()],
+    }));
+  if (stmts.length) await db.batch(stmts, 'write');
+  await db.execute("INSERT INTO app_flags (key) VALUES ('ownership_v1')");
+}
+
+const dbReady = initDb().then(migrateOwnership);
 dbReady.catch((err) => console.error('Turso init failed:', err));
 
 // API: Healthcheck
@@ -113,10 +234,10 @@ app.get('/api/health', async (_req, res) => {
 });
 
 // API: Cloud sync pull
-app.get('/api/sync/pull', async (_req, res) => {
+app.get('/api/sync/pull', async (req, res) => {
   try {
     await dbReady;
-    res.json({ success: true, songs: await getSongs(), lastSyncAt: new Date().toISOString() });
+    res.json({ success: true, songs: await getSongsFor(me(req)), lastSyncAt: new Date().toISOString() });
   } catch (err) {
     console.error('Error in sync pull:', err);
     res.status(500).json({ error: 'Error interno al leer de la nube' });
@@ -132,8 +253,8 @@ app.post('/api/sync/push', async (req, res) => {
     }
 
     await dbReady;
-    await upsertSongs(songs);
-    const merged = await getSongs();
+    await saveSongsFor(me(req), songs);
+    const merged = await getSongsFor(me(req));
     res.json({ success: true, count: merged.length, lastSyncAt: new Date().toISOString(), songs: merged });
   } catch (err: any) {
     console.error('Error in sync push:', err);
@@ -151,7 +272,7 @@ app.get('/api/songs/search', async (req, res) => {
   try {
     await dbReady;
     const words = q.split(/\s+/).filter(Boolean);
-    const results = (await getSongs())
+    const results = (await getSongsFor(me(req)))
       .filter((s) => !s.deletedAt)
       .map((s) => {
         const head = normalize(`${s.title || ''} ${s.artist || ''}`);
@@ -183,16 +304,19 @@ app.get('/api/songs/search', async (req, res) => {
   }
 });
 
-// API: Song groups (folders). At most MAX_GROUPS, shared by every account like the songs themselves.
+// API: Song groups (folders). At most MAX_GROUPS per account; every account has its own.
 const MAX_GROUPS = 5;
 const GROUP_NAME_MAX = 20;
 
 const groupName = (v: unknown) => String(v ?? '').trim().replace(/\s+/g, ' ');
 
-app.get('/api/groups', async (_req, res) => {
+app.get('/api/groups', async (req, res) => {
   try {
     await dbReady;
-    const { rows } = await db.execute('SELECT id, name, position FROM song_groups ORDER BY position ASC, created_at ASC');
+    const { rows } = await db.execute({
+      sql: 'SELECT id, name, position FROM song_groups WHERE user_id = ? ORDER BY position ASC, created_at ASC',
+      args: [me(req).id],
+    });
     res.json({ groups: rows.map((r) => ({ id: String(r.id), name: String(r.name), position: Number(r.position) })) });
   } catch (err) {
     console.error('Error listing groups:', err);
@@ -207,7 +331,7 @@ app.post('/api/groups', async (req, res) => {
   }
   try {
     await dbReady;
-    const { rows } = await db.execute('SELECT name, position FROM song_groups');
+    const { rows } = await db.execute({ sql: 'SELECT name, position FROM song_groups WHERE user_id = ?', args: [me(req).id] });
     if (rows.length >= MAX_GROUPS) {
       return res.status(409).json({ error: `Máximo ${MAX_GROUPS} grupos` });
     }
@@ -217,8 +341,8 @@ app.post('/api/groups', async (req, res) => {
     const id = `grp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const position = rows.reduce((m, r) => Math.max(m, Number(r.position)), -1) + 1;
     await db.execute({
-      sql: 'INSERT INTO song_groups (id, name, position, created_at) VALUES (?, ?, ?, ?)',
-      args: [id, name, position, new Date().toISOString()],
+      sql: 'INSERT INTO song_groups (id, name, position, created_at, user_id) VALUES (?, ?, ?, ?, ?)',
+      args: [id, name, position, new Date().toISOString(), me(req).id],
     });
     res.status(201).json({ group: { id, name, position } });
   } catch (err) {
@@ -234,7 +358,7 @@ app.patch('/api/groups/:id', async (req, res) => {
   }
   try {
     await dbReady;
-    const { rows } = await db.execute('SELECT id, name, position FROM song_groups');
+    const { rows } = await db.execute({ sql: 'SELECT id, name, position FROM song_groups WHERE user_id = ?', args: [me(req).id] });
     const target = rows.find((r) => r.id === req.params.id);
     if (!target) return res.status(404).json({ error: 'Grupo no encontrado' });
     if (
@@ -243,7 +367,7 @@ app.patch('/api/groups/:id', async (req, res) => {
     ) {
       return res.status(409).json({ error: 'Ya existe un grupo con ese nombre' });
     }
-    await db.execute({ sql: 'UPDATE song_groups SET name = ? WHERE id = ?', args: [name, req.params.id] });
+    await db.execute({ sql: 'UPDATE song_groups SET name = ? WHERE id = ? AND user_id = ?', args: [name, req.params.id, me(req).id] });
     res.json({ group: { id: String(target.id), name, position: Number(target.position) } });
   } catch (err) {
     console.error('Error renaming group:', err);
@@ -254,11 +378,49 @@ app.patch('/api/groups/:id', async (req, res) => {
 app.delete('/api/groups/:id', async (req, res) => {
   try {
     await dbReady;
-    await db.execute({ sql: 'DELETE FROM song_groups WHERE id = ?', args: [req.params.id] });
+    await db.execute({ sql: 'DELETE FROM song_groups WHERE id = ? AND user_id = ?', args: [req.params.id, me(req).id] });
     res.json({ success: true });
   } catch (err) {
     console.error('Error deleting group:', err);
     res.status(500).json({ error: 'No se pudo eliminar el grupo' });
+  }
+});
+
+// API (admin): songs of the shared catalog that get preloaded into the guest account.
+// Each pick is copied once into the guest's own catalog; unpicking later does not remove what was already copied.
+app.get('/api/admin/guest-seed', requireAdmin, async (_req, res) => {
+  try {
+    await dbReady;
+    const songs = (await getPoolSongs())
+      .filter((s) => !s.deletedAt)
+      .map((s) => ({ id: String(s.id), title: s.title || 'Sin título', artist: s.artist || '' }))
+      .sort((a, b) => a.title.localeCompare(b.title, 'es'));
+    const { rows } = await db.execute('SELECT song_id FROM guest_seed');
+    res.json({ songs, selected: rows.map((r) => String(r.song_id)) });
+  } catch (err) {
+    console.error('Error reading guest seed:', err);
+    res.status(500).json({ error: 'No se pudo leer la lista de canciones' });
+  }
+});
+
+app.put('/api/admin/guest-seed', requireAdmin, async (req, res) => {
+  const ids: unknown = req.body?.ids;
+  if (!Array.isArray(ids) || ids.some((i) => typeof i !== 'string')) {
+    return res.status(400).json({ error: 'Formato inválido' });
+  }
+  try {
+    await dbReady;
+    await db.batch(
+      [
+        'DELETE FROM guest_seed',
+        ...(ids as string[]).map((id) => ({ sql: 'INSERT OR IGNORE INTO guest_seed (song_id) VALUES (?)', args: [id] })),
+      ],
+      'write'
+    );
+    res.json({ success: true, count: ids.length });
+  } catch (err) {
+    console.error('Error saving guest seed:', err);
+    res.status(500).json({ error: 'No se pudo guardar la selección' });
   }
 });
 
