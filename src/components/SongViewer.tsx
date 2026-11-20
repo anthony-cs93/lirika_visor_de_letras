@@ -490,6 +490,10 @@ export function SongViewer({
   const currentBlock = blocks[currentBlockIndex] || blocks[0];
   const nextBlock = currentBlockIndex < blocks.length - 1 ? blocks[currentBlockIndex + 1] : null;
   const livePageCount = livePagesOf(currentBlockIndex);
+  // Position inside a run of consecutive same-name sections ("repetición 1/2")
+  const repeatPos = sectionMarks[currentBlockIndex]?.repeat ?? 1;
+  let repeatTotal = repeatPos;
+  while (sectionMarks[currentBlockIndex + (repeatTotal - repeatPos) + 1]?.repeat === repeatTotal + 1) repeatTotal++;
   const liveLines = paginateLines(currentBlock.lines)[livePage] ?? currentBlock.lines;
 
   const AMBER = 'bg-[oklch(0.82_0.14_75)] text-[#17130a]';
@@ -691,8 +695,10 @@ export function SongViewer({
               <div className="flex justify-between mb-4 pr-1 text-[11px] font-extrabold tracking-[0.14em] uppercase text-[oklch(0.85_0.13_75)]">
                 <span>
                   {currentBlock.sectionLabel}
-                  {(sectionMarks[currentBlockIndex]?.repeat ?? 1) > 1 && (
-                    <span className="ml-1.5 opacity-80">x{sectionMarks[currentBlockIndex].repeat}</span>
+                  {repeatTotal > 1 && (
+                    <span className="ml-3 px-2 py-0.5 rounded-full border border-[oklch(0.82_0.14_75_/_0.5)] bg-[oklch(0.82_0.14_75_/_0.12)] text-[10px] tracking-wider align-[1px]">
+                      repetición {repeatPos}/{repeatTotal}
+                    </span>
                   )}
                 </span>
                 <span className="opacity-60 text-[color:var(--ink)] tracking-wider">
@@ -749,9 +755,7 @@ export function SongViewer({
                   className={isChorus ? `${CHORUS_HIGHLIGHT} -mx-3 px-3 py-3` : ''}
                 >
                   <div className="text-[11px] font-extrabold tracking-[0.14em] uppercase mb-2 text-[oklch(0.85_0.13_75)]">
-                    {block.sectionLabel}
-                    {sectionMarks[index].repeat > 1 && <span className="ml-1.5 opacity-80">x{sectionMarks[index].repeat}</span>}
-                  </div>
+                    {block.sectionLabel}                  </div>
                   {block.lines.map((line, lIdx) => (
                     <div key={lIdx} className={`leading-[1.45] tracking-tight ${isChorus ? 'font-bold' : 'font-semibold'} ${line ? '' : 'h-3'}`}>
                       {line}
