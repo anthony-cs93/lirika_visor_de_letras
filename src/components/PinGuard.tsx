@@ -5,14 +5,14 @@ import { Lock } from 'lucide-react';
 // Protección temporal contra borrados/ediciones accidentales. Cambia el PIN aquí.
 const SECURITY_PIN = '2121';
 const PIN_LENGTH = SECURITY_PIN.length;
-const PIN_TTL_MS = 60_000;
+const PIN_TTL_MS = 5 * 60_000;
 
 // Vive en memoria del módulo: se comparte entre pantallas y se pierde al recargar.
 let unlockedUntil = 0;
 const isUnlocked = () => Date.now() < unlockedUntil;
 
 /**
- * Devuelve `guard(action)`: ejecuta la acción al instante si el PIN sigue vigente (1 min),
+ * Devuelve `guard(action)`: ejecuta la acción al instante si el PIN sigue vigente (5 min),
  * si no, muestra el cuadro de PIN y la ejecuta al acertar. Renderiza `pinDialog` en el JSX.
  */
 export function usePinGuard() {
@@ -102,7 +102,7 @@ function PinDialog({ open, onClose, onSuccess }: { open: boolean; onClose: () =>
           </div>
           <h3 className="text-[18px] font-extrabold tracking-tight leading-snug">PIN de seguridad</h3>
           <p className="text-[13px] leading-relaxed opacity-70">
-            Ingresa el PIN para editar o eliminar canciones. Se mantendrá activo por 1 minuto.
+            Ingresa el PIN para editar o eliminar canciones. Se mantendrá activo por 5 minutos.
           </p>
         </div>
 
