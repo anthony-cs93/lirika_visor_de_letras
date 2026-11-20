@@ -651,7 +651,7 @@ export function SongViewer({
                     {compactSectionLabel(sec.label)}
                   </button>
                   {count > 1 && (
-                    <span className="pointer-events-none absolute -top-2 -right-1.5 min-w-[18px] h-[16px] px-1 rounded-full bg-[#17130a] text-[oklch(0.85_0.13_75)] border border-[oklch(0.82_0.14_75)] text-[9px] font-extrabold leading-none flex items-center justify-center">
+                    <span className="pointer-events-none absolute -top-2 -right-1.5 min-w-[18px] h-[16px] px-1 rounded-full repeat-badge border text-[9px] font-extrabold leading-none flex items-center justify-center">
                       x{count}
                     </span>
                   )}
