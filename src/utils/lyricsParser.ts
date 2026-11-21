@@ -183,10 +183,10 @@ export function getSectionMarks(blocks: SongBlock[]): SectionMark[] {
   });
 }
 
-/** Live: max lines shown at once; longer sections are split into balanced pages. */
-export const LIVE_MAX_LINES = 6;
+/** Live: without text breaks, a section longer than this is split into pages of this many lines. */
+export const LIVE_PAGE_LINES = 2;
 
-export function paginateLines(lines: string[], max = LIVE_MAX_LINES): string[][] {
+export function paginateLines(lines: string[]): string[][] {
   // Text breaks ('' lines) inside the section are the first choice of page boundary
   if (lines.some((l) => !l.trim())) {
     const groups: string[][] = [[]];
@@ -195,10 +195,12 @@ export function paginateLines(lines: string[], max = LIVE_MAX_LINES): string[][]
     if (pages.length > 1) return pages;
     lines = pages[0] ?? [];
   }
-  if (lines.length <= max) return [lines];
-  const pages = Math.ceil(lines.length / max);
-  const size = Math.ceil(lines.length / pages);
-  return Array.from({ length: pages }, (_, i) => lines.slice(i * size, (i + 1) * size));
+  // Pairs of lines; a lone last line is not left on its own: the final page then shows 3
+  if (lines.length <= LIVE_PAGE_LINES + 1) return [lines];
+  const pairs = Math.floor(lines.length / LIVE_PAGE_LINES);
+  return Array.from({ length: pairs }, (_, i) =>
+    lines.slice(i * LIVE_PAGE_LINES, i === pairs - 1 ? lines.length : (i + 1) * LIVE_PAGE_LINES)
+  );
 }
 
 /** Numbered variants offered by the section picker in the editor. */

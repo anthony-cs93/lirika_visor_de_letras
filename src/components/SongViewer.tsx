@@ -515,7 +515,7 @@ export function SongViewer({
   const repeatPos = sectionMarks[currentBlockIndex]?.repeat ?? 1;
   let repeatTotal = repeatPos;
   while (sectionMarks[currentBlockIndex + (repeatTotal - repeatPos) + 1]?.repeat === repeatTotal + 1) repeatTotal++;
-  const liveLines = paginateLines(currentBlock.lines)[livePage] ?? currentBlock.lines;
+  const livePages = paginateLines(currentBlock.lines);
 
   const AMBER = 'bg-[oklch(0.82_0.14_75)] text-[#17130a]';
   // "Resaltar coro": chorus sections get an amber bar and tint (the rest of the text stays untouched)
@@ -718,28 +718,47 @@ export function SongViewer({
                 highlightChorus && currentBlock.sectionType === 'chorus' ? `${CHORUS_HIGHLIGHT_LIVE} -mx-3 px-3 py-3` : ''
               }`}
             >
-              <div className="flex justify-between mb-4 pr-1 text-[11px] font-extrabold tracking-[0.14em] uppercase text-[oklch(0.85_0.13_75)]">
-                <span>
+              <div className="flex items-center justify-between mb-4 pr-1 text-[11px] font-extrabold tracking-[0.14em] uppercase text-[oklch(0.85_0.13_75)]">
+                <span className="flex items-center gap-2.5">
                   {currentBlock.sectionLabel}
-                  {repeatTotal > 1 && (
-                    <span className="ml-3 px-2 py-0.5 rounded-full border border-[oklch(0.82_0.14_75_/_0.5)] bg-[oklch(0.82_0.14_75_/_0.12)] text-[10px] tracking-wider align-[1px]">
-                      repetición {repeatPos}/{repeatTotal}
+                  {livePageCount > 1 && (
+                    <span className="flex items-center gap-1" role="img" aria-label={`Página ${livePage + 1} de ${livePageCount}`}>
+                      {Array.from({ length: livePageCount }, (_, i) => (
+                        <span
+                          key={i}
+                          className={`rounded-full transition-all ${
+                            i === livePage ? 'w-2 h-2 bg-[oklch(0.82_0.14_75)]' : 'w-1.5 h-1.5 bg-current opacity-35'
+                          }`}
+                        />
+                      ))}
                     </span>
                   )}
                 </span>
-                <span className="opacity-60 text-[color:var(--ink)] tracking-wider">
-                  {livePageCount > 1 && <span className="mr-2">pág. {livePage + 1}/{livePageCount}</span>}
-                  {currentBlockIndex + 1} / {blocks.length}
-                </span>
+                {repeatTotal > 1 && (
+                  <span className="px-2 py-0.5 rounded-full border border-[oklch(0.82_0.14_75_/_0.5)] bg-[oklch(0.82_0.14_75_/_0.12)] text-[10px] tracking-wider">
+                    repetición {repeatPos}/{repeatTotal}
+                  </span>
+                )}
               </div>
-              <div className={align === 'center' ? 'px-12' : 'pr-12'}>
-                {liveLines.map((line, i) => (
+              {/* All pages share one grid cell, so the block is as tall as the tallest page and the
+                  header (title, dots, repetition) never moves when the page changes */}
+              <div className={`grid ${align === 'center' ? 'px-12' : 'pr-12'}`}>
+                {livePages.map((page, p) => (
                   <div
-                    key={i}
-                    className="font-extrabold tracking-tight mt-1.5 leading-[1.28]"
-                    style={{ fontSize: `${fontSize + 9}px` }}
+                    key={p}
+                    style={{ gridArea: '1 / 1' }}
+                    className={p === livePage ? '' : 'invisible'}
+                    aria-hidden={p === livePage ? undefined : true}
                   >
-                    {line}
+                    {page.map((line, i) => (
+                      <div
+                        key={i}
+                        className="font-extrabold tracking-tight mt-1.5 leading-[1.28]"
+                        style={{ fontSize: `${fontSize + 9}px` }}
+                      >
+                        {line}
+                      </div>
+                    ))}
                   </div>
                 ))}
               </div>
