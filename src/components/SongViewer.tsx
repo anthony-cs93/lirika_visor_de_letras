@@ -735,7 +735,7 @@ export function SongViewer({
                   )}
                 </span>
                 {repeatTotal > 1 && (
-                  <span className="px-2 py-0.5 rounded-full border border-[oklch(0.82_0.14_75_/_0.5)] bg-[oklch(0.82_0.14_75_/_0.12)] text-[10px] tracking-wider">
+                  <span className="px-1.5 py-0 leading-[14px] rounded-full border border-[oklch(0.82_0.14_75_/_0.5)] bg-[oklch(0.82_0.14_75_/_0.12)] text-[10px] tracking-normal whitespace-nowrap">
                     repetición {repeatPos}/{repeatTotal}
                   </span>
                 )}
