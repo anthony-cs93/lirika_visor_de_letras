@@ -233,10 +233,14 @@ export function SongList({
     return `linear-gradient(135deg, oklch(0.8 0.13 ${h}), oklch(0.58 0.15 ${(h + 50) % 360}))`;
   };
 
-  const tabs: { key: string; label: string }[] = [
-    { key: 'all', label: 'Mis letras' },
-    { key: 'favorites', label: 'Favoritas' },
-    ...groups.map((g) => ({ key: `group:${g.id}`, label: g.name })),
+  const tabs: { key: string; label: string; count: number }[] = [
+    { key: 'all', label: 'Mis letras', count: songs.length },
+    { key: 'favorites', label: 'Favoritas', count: songs.filter((s) => s.isFavorite).length },
+    ...groups.map((g) => ({
+      key: `group:${g.id}`,
+      label: g.name,
+      count: songs.filter((s) => s.groupIds?.includes(g.id)).length,
+    })),
   ];
   const activeGroup = groups.find((g) => `group:${g.id}` === filterTab) ?? null;
   // If the active group disappeared (deleted elsewhere), fall back to the whole library
@@ -441,7 +445,7 @@ export function SongList({
 
         {/* Search */}
         <div className="px-5 mt-4 shrink-0">
-          <div className={`relative h-12 rounded-full flex items-center gap-2.5 px-4 ${GLASS}`}>
+          <div className={`relative h-10 rounded-full flex items-center gap-2.5 px-4 ${GLASS}`}>
             <Search className="w-4 h-4 opacity-60 shrink-0" />
             <input
               type="text"
@@ -492,7 +496,7 @@ export function SongList({
               >
                 {t.key === 'online' && <Globe className="inline w-3.5 h-3.5 -mt-0.5 mr-1" />}
                 {t.label}
-                {t.key === 'all' ? ` (${songs.length})` : ''}
+                {` (${t.count})`}
               </button>
             );
           })}
@@ -670,7 +674,7 @@ export function SongList({
                         className="shrink-0 px-2 py-px rounded-full text-[10px] font-semibold tabular-nums bg-white/[0.06] border border-white/[0.08] text-[color:var(--ink)]/55"
                         title={`${sectionCount} ${sectionCount === 1 ? 'sección' : 'secciones'}`}
                       >
-                        {sectionCount} secc.
+                        {sectionCount} {sectionCount === 1 ? 'sección' : 'secciones'}
                       </span>
                       {meta && <span className="text-[11px] opacity-50 truncate">{meta}</span>}
                     </div>
