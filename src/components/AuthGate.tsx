@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { Eye, EyeOff, Loader2, LogIn, Music, User } from 'lucide-react';
+import { Eye, EyeOff, Loader2, LogIn, User } from 'lucide-react';
+import { LogoVertical } from './Logo';
 import { setStorageUser } from '../utils/storage';
 import {
   AuthUser,
@@ -143,10 +144,9 @@ function LoginScreen({ onLoggedIn }: { onLoggedIn: (user: AuthUser) => void }) {
 
       <div className="relative w-full max-w-sm rounded-[32px] p-6 pt-8 bg-[color:var(--sheet)] border border-white/[0.18] backdrop-blur-3xl shadow-[0_24px_70px_rgba(0,0,0,0.5)]">
         <div className="flex flex-col items-center text-center gap-2.5 mb-6">
-          <div className="w-14 h-14 rounded-full flex items-center justify-center bg-[oklch(0.82_0.14_75_/_0.18)] text-[oklch(0.82_0.14_75)]">
-            <Music className="w-6 h-6" />
-          </div>
-          <h1 className="text-2xl font-extrabold tracking-tight">Lirika</h1>
+          <h1>
+            <LogoVertical className="h-32 w-auto" />
+          </h1>
           <p className="text-[13px] opacity-70">Inicia sesión para ver tus letras</p>
         </div>
 

@@ -18,6 +18,7 @@ html.live-mode, html.live-mode body { overscroll-behavior-y: none; }
   --page: #0b0b10;
   --dock: rgba(20, 20, 26, 0.55);
   --sheet: rgba(24, 24, 32, 0.7);
+  --logo-ink: #f4f2ee;
 }
 
 /* Light mode: Tailwind v4 builds opacity utilities from these variables, so swapping them re-themes everything. */
@@ -26,6 +27,7 @@ html.live-mode, html.live-mode body { overscroll-behavior-y: none; }
   --page: #f6f2ea;
   --dock: rgba(255, 255, 255, 0.65);
   --sheet: rgba(255, 255, 255, 0.85);
+  --logo-ink: #0e0e34;
   --color-white: #1c1917;
   --color-black: #ffffff;
   --color-zinc-200: #292524;

@@ -9,7 +9,7 @@ import {
   Cloud,
   Wifi,
   WifiOff,
-  Sliders,
+  UserRound,
   ChevronRight,
   Sparkles,
   Download,
@@ -44,6 +44,7 @@ import {
   triggerCloudSync,
 } from '../utils/storage';
 import { apiFetch } from '../utils/auth';
+import { LogoHorizontal } from './Logo';
 
 interface SongListProps {
   onSelectSong: (song: Song) => void;
@@ -406,7 +407,9 @@ export function SongList({
         {/* Header */}
         <header className="px-5 pt-5 shrink-0 flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-extrabold tracking-tight leading-none">Lirika</h1>
+            <h1 className="leading-none">
+              <LogoHorizontal className="h-9 w-auto" />
+            </h1>
             <div className="flex items-center gap-1.5 mt-1 text-xs opacity-65">
               <span
                 className={`w-1.5 h-1.5 rounded-full ${
@@ -438,7 +441,7 @@ export function SongList({
             className={`w-11 h-11 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors ${GLASS}`}
             title="Cuenta"
           >
-            <Sliders className="w-[18px] h-[18px]" />
+            <UserRound className="w-[18px] h-[18px]" />
           </button>
           </div>
         </header>
