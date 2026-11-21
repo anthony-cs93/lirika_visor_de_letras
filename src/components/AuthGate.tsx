@@ -145,7 +145,7 @@ function LoginScreen({ onLoggedIn }: { onLoggedIn: (user: AuthUser) => void }) {
       <div className="relative w-full max-w-sm rounded-[32px] p-6 pt-8 bg-[color:var(--sheet)] border border-white/[0.18] backdrop-blur-3xl shadow-[0_24px_70px_rgba(0,0,0,0.5)]">
         <div className="flex flex-col items-center text-center gap-2.5 mb-6">
           <h1>
-            <LogoVertical className="h-32 w-auto" />
+            <LogoVertical className="h-[90px] w-auto" />
           </h1>
           <p className="text-[13px] opacity-70">Inicia sesión para ver tus letras</p>
         </div>

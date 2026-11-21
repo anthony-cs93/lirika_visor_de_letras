@@ -408,7 +408,7 @@ export function SongList({
         <header className="px-5 pt-5 shrink-0 flex items-center justify-between">
           <div>
             <h1 className="leading-none">
-              <LogoHorizontal className="h-9 w-auto" />
+              <LogoHorizontal className="h-[47px] w-auto" />
             </h1>
             <div className="flex items-center gap-1.5 mt-1 text-xs opacity-65">
               <span
