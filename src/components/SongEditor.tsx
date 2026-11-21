@@ -49,11 +49,13 @@ import {
 
 interface SongEditorProps {
   song?: Song | null;
+  /** Section to scroll to when the editor opens */
+  initialBlock?: number;
   onBack: () => void;
   onSaved: (song: Song) => void;
 }
 
-export function SongEditor({ song, onBack, onSaved }: SongEditorProps) {
+export function SongEditor({ song, initialBlock = 0, onBack, onSaved }: SongEditorProps) {
   const [title, setTitle] = useState(song?.title || '');
   const [artist, setArtist] = useState(song?.artist || '');
   const [songKey, setSongKey] = useState(song?.key || '');
@@ -78,6 +80,32 @@ export function SongEditor({ song, onBack, onSaved }: SongEditorProps) {
       },
     ];
   });
+
+  // Opened from the viewer: land on the section that was on screen
+  const listRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (initialBlock <= 0) return;
+    // Scroll only the editor's own list, and again while the layout settles (fonts, panels), until the user scrolls
+    let userScrolled = false;
+    const list = listRef.current;
+    const goTo = () => {
+      const el = list?.querySelector<HTMLElement>(`[data-block="${initialBlock}"]`);
+      if (!list || !el || userScrolled) return;
+      list.scrollTop = el.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop - 12;
+    };
+    const stop = () => (userScrolled = true);
+    list?.addEventListener('wheel', stop, { passive: true });
+    list?.addEventListener('touchmove', stop, { passive: true });
+    goTo();
+    const timers = [60, 250, 600].map((ms) => window.setTimeout(goTo, ms));
+    document.fonts?.ready.then(goTo);
+    return () => {
+      timers.forEach(clearTimeout);
+      list?.removeEventListener('wheel', stop);
+      list?.removeEventListener('touchmove', stop);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Text mode vs Section Blocks mode
   const [editorMode, setEditorMode] = useState<'blocks' | 'raw' | 'preview'>('blocks');
@@ -560,7 +588,7 @@ export function SongEditor({ song, onBack, onSaved }: SongEditorProps) {
       )}
 
       {/* Editor Content Body */}
-      <div className="relative z-10 flex-1 overflow-y-auto p-4 max-w-3xl mx-auto w-full space-y-4">
+      <div ref={listRef} className="relative z-10 flex-1 overflow-y-auto p-4 max-w-3xl mx-auto w-full space-y-4">
         {/* Title & Metadata Card */}
         <div className="bg-white/[0.06] backdrop-blur-xl border border-white/10 rounded-3xl p-4 space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -626,7 +654,8 @@ export function SongEditor({ song, onBack, onSaved }: SongEditorProps) {
               return (
                 <div
                   key={block.id || idx}
-                  className={`bg-white/[0.06] backdrop-blur-xl border rounded-3xl transition-all ${
+                  data-block={idx}
+                  className={`bg-white/[0.06] backdrop-blur-xl border rounded-3xl transition-all scroll-mt-4 ${
                     isChorus
                       ? 'border-amber-500/50 shadow-md shadow-amber-500/5'
                       : 'border-white/10'

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import {
   ArrowLeft,
   Play,
@@ -73,7 +73,7 @@ interface ViewStyle {
 interface SongViewerProps {
   song: Song;
   onBack: () => void;
-  onEdit: (song: Song) => void;
+  onEdit: (song: Song, blockIndex: number) => void;
 }
 
 export function SongViewer({
@@ -175,6 +175,130 @@ export function SongViewer({
       window.removeEventListener('keydown', onKey);
     };
   }, [panel]);
+
+  // Live section controls: long-press to drag them, they snap to the nearest side (left/right)
+  const NAV_HOLD_MS = 700;
+  const NAV_MARGIN_PX = 14; // same as left-3.5 / right-3.5
+  const NAV_BOTTOM_PX = 84; // default distance from the bottom (above the dock)
+  const NAV_TOP_LIMIT_PX = 120; // never closer than this to the top (header and chips)
+  const NAV_Y_KEY = 'lirika_nav_y';
+  const NAV_SIDE_KEY = 'lirika_nav_side';
+  const [navSide, setNavSide] = useState<'left' | 'right'>(() => {
+    try {
+      return localStorage.getItem(NAV_SIDE_KEY) === 'left' ? 'left' : 'right';
+    } catch {
+      return 'right';
+    }
+  });
+  // Extra distance above the default bottom position (px); the control can be moved up but not over the dock
+  const [navLift, setNavLift] = useState<number>(() => {
+    try {
+      const v = Number(localStorage.getItem(NAV_Y_KEY));
+      return Number.isFinite(v) && v > 0 ? v : 0;
+    } catch {
+      return 0;
+    }
+  });
+  const [navDx, setNavDx] = useState(0);
+  const [navDy, setNavDy] = useState(0);
+  const [navHeld, setNavHeld] = useState(false); // long press armed: the control follows the finger
+  const navRef = useRef<HTMLDivElement>(null);
+  const navPress = useRef<{ id: number; x: number; y: number; baseLeft: number; baseTop: number; held: boolean; timer: number } | null>(null);
+  const navJustDragged = useRef(false);
+  const navSlideFrom = useRef<string | null>(null);
+  const [navSlideTick, setNavSlideTick] = useState(0);
+
+  const handleNavPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const el = navRef.current;
+    const parent = el?.offsetParent as HTMLElement | null;
+    if (!el || !parent) return;
+    const press = {
+      id: e.pointerId,
+      x: e.clientX,
+      y: e.clientY,
+      baseLeft: el.getBoundingClientRect().left - parent.getBoundingClientRect().left,
+      baseTop: el.getBoundingClientRect().top - parent.getBoundingClientRect().top,
+      held: false,
+      timer: 0,
+    };
+    press.timer = window.setTimeout(() => {
+      press.held = true;
+      setNavHeld(true);
+      try {
+        el.setPointerCapture(press.id);
+      } catch {
+        // pointer already gone
+      }
+      navigator.vibrate?.(15);
+    }, NAV_HOLD_MS);
+    navPress.current = press;
+  };
+
+  const handleNavPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const press = navPress.current;
+    const el = navRef.current;
+    const parent = el?.offsetParent as HTMLElement | null;
+    if (!press || !el || !parent) return;
+    if (!press.held) {
+      // Moved before the hold finished: it is a normal gesture, not a drag
+      if (Math.hypot(e.clientX - press.x, e.clientY - press.y) > 10) {
+        clearTimeout(press.timer);
+        navPress.current = null;
+      }
+      return;
+    }
+    const min = -press.baseLeft;
+    const max = parent.clientWidth - el.offsetWidth - press.baseLeft;
+    setNavDx(Math.max(min, Math.min(max, e.clientX - press.x)));
+    // Vertical: up to the top limit, down to the default position
+    const minY = NAV_TOP_LIMIT_PX - press.baseTop;
+    const maxY = navLift;
+    setNavDy(Math.max(minY, Math.min(maxY, e.clientY - press.y)));
+  };
+
+  const endNavPress = () => {
+    const press = navPress.current;
+    const el = navRef.current;
+    const parent = el?.offsetParent as HTMLElement | null;
+    navPress.current = null;
+    if (!press) return;
+    clearTimeout(press.timer);
+    if (!press.held || !el || !parent) return;
+
+    // Snap to the nearest side; the final position is applied at once and the slide starts from where it was dropped
+    const left = press.baseLeft + navDx;
+    const side = left + el.offsetWidth / 2 < parent.clientWidth / 2 ? 'left' : 'right';
+    const targetLeft = side === 'left' ? NAV_MARGIN_PX : parent.clientWidth - el.offsetWidth - NAV_MARGIN_PX;
+    const lift = Math.max(0, navLift - navDy); // moving down (dy > 0) lowers the control
+    navSlideFrom.current = `translate(${left - targetLeft}px, 0px) scale(1.08)`;
+    setNavSide(side);
+    setNavLift(lift);
+    setNavDx(0);
+    setNavDy(0);
+    setNavHeld(false);
+    setNavSlideTick((t) => t + 1);
+    try {
+      localStorage.setItem(NAV_SIDE_KEY, side);
+      localStorage.setItem(NAV_Y_KEY, String(Math.round(lift)));
+    } catch {
+      // storage unavailable
+    }
+    navJustDragged.current = true; // the release must not count as a tap on a button
+    setTimeout(() => (navJustDragged.current = false), 80);
+  };
+
+  // Runs after the new side is rendered: animate from the drop position to the snapped one
+  useLayoutEffect(() => {
+    const from = navSlideFrom.current;
+    const el = navRef.current;
+    navSlideFrom.current = null;
+    if (!from || !el) return;
+    el.animate([{ transform: from }, { transform: 'translate(0px, 0px) scale(1)' }], {
+      duration: 240,
+      easing: 'cubic-bezier(0.2, 0.9, 0.3, 1)',
+    });
+  }, [navSlideTick]);
 
   // Favorite toggle
   const [isFav, setIsFav] = useState<boolean>(!!song.isFavorite);
@@ -825,7 +949,25 @@ export function SongViewer({
         {/* Floating section navigation (outside the dock). Live only: Full navigates by scrolling */}
         {isLive && (
         <div
-          className={`absolute right-3.5 bottom-[84px] z-10 flex flex-col gap-1.5 p-1.5 rounded-full ${DOCK} ring-1 ring-[oklch(0.82_0.14_75_/_0.45)] transition-all duration-200 ${
+          ref={navRef}
+          onPointerDown={handleNavPointerDown}
+          onPointerMove={handleNavPointerMove}
+          onPointerUp={endNavPress}
+          onPointerCancel={endNavPress}
+          onContextMenu={(e) => e.preventDefault()}
+          onClickCapture={(e) => {
+            if (navJustDragged.current) {
+              e.stopPropagation();
+              e.preventDefault();
+            }
+          }}
+          style={{
+            transform: `translate(${navDx}px, ${navDy}px) scale(${navHeld ? 1.08 : 1})`,
+            bottom: `min(${NAV_BOTTOM_PX + navLift}px, calc(100% - ${NAV_TOP_LIMIT_PX + 110}px))`,
+          }}
+          className={`absolute ${navSide === 'left' ? 'left-3.5' : 'right-3.5'} z-10 flex flex-col gap-1.5 p-1.5 rounded-full touch-none select-none ${DOCK} ring-1 ${
+            navHeld ? 'ring-2 ring-[oklch(0.82_0.14_75)] shadow-[0_10px_30px_rgba(0,0,0,0.45)]' : 'ring-[oklch(0.82_0.14_75_/_0.45)]'
+          } transition-[opacity,translate] duration-200 ${
             panel ? 'opacity-0 pointer-events-none translate-y-2' : ''
           }`}
         >
@@ -1051,7 +1193,7 @@ export function SongViewer({
               <Gauge className="w-[18px] h-[18px]" />
             </button>
             <button
-              onClick={() => guard(() => onEdit(song))}
+              onClick={() => guard(() => onEdit(song, currentBlockIndex))}
               className={`w-8 h-8 rounded-full bg-white/[0.09] flex items-center justify-center active:scale-90 transition-transform`}
               title="Editar letra"
             >

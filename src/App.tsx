@@ -25,6 +25,7 @@ export default function App() {
   const [currentView, setCurrentView] = useState<AppView>('list');
   const [selectedSong, setSelectedSong] = useState<Song | null>(null);
   const [editingSong, setEditingSong] = useState<Song | null>(null);
+  const [editingBlock, setEditingBlock] = useState(0); // section being viewed when Edit was pressed
 
   // Modals
   const [isUploadOpen, setIsUploadOpen] = useState(false);
@@ -206,15 +207,16 @@ export default function App() {
           <SongViewer
             song={selectedSong}
             onBack={goBack}
-            onEdit={(songToEdit) => {
+            onEdit={(songToEdit, blockIndex) => {
               setEditingSong(songToEdit);
+              setEditingBlock(blockIndex);
               editorFromViewer.current = true;
               pushNav('editor');
             }}
           />
         )}
 
-        {currentView === 'editor' && <SongEditor song={editingSong} onBack={goBack} onSaved={handleSavedSong} />}
+        {currentView === 'editor' && <SongEditor song={editingSong} initialBlock={editingBlock} onBack={goBack} onSaved={handleSavedSong} />}
 
         {toast && (
           <div className="absolute top-24 left-1/2 -translate-x-1/2 z-[60] px-4 py-2.5 rounded-full bg-zinc-900/80 border border-white/20 backdrop-blur-xl text-[13px] font-bold shadow-xl">
