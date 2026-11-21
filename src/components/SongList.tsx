@@ -436,7 +436,7 @@ export function SongList({
           <button
             onClick={onOpenSettings}
             className={`w-11 h-11 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors ${GLASS}`}
-            title="Ajustes y sincronización"
+            title="Cuenta"
           >
             <Sliders className="w-[18px] h-[18px]" />
           </button>

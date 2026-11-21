@@ -4,13 +4,13 @@ import { SongList } from './components/SongList';
 import { SongViewer } from './components/SongViewer';
 import { SongEditor } from './components/SongEditor';
 import { LyricsSearchModal } from './components/LyricsSearchModal';
-import { SettingsModal } from './components/SettingsModal';
-import { AdminPanel } from './components/AdminPanel';
+import { AccountScreen } from './components/AccountScreen';
+import { AdminScreen } from './components/AdminScreen';
 import { useAuth } from './components/AuthGate';
 import { getPreferences, savePreferences } from './utils/storage';
 
-type AppView = 'list' | 'viewer' | 'editor';
-type ModalKind = 'search' | 'settings' | 'admin';
+type AppView = 'list' | 'viewer' | 'editor' | 'account' | 'admin';
+type ModalKind = 'search';
 
 // Every screen/modal the user opens is a browser-history entry, so the system back
 // gesture/button closes it. Entry 0 is a sentinel ('exit') that triggers the leave confirmation.
@@ -29,8 +29,6 @@ export default function App() {
 
   // Modals
   const [isUploadOpen, setIsUploadOpen] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isAdminOpen, setIsAdminOpen] = useState(false);
   const { user } = useAuth();
 
   // User default preferences
@@ -55,8 +53,6 @@ export default function App() {
   const applyNav = (view: AppView, modal?: ModalKind) => {
     setCurrentView(view);
     setIsUploadOpen(modal === 'search');
-    setIsSettingsOpen(modal === 'settings');
-    setIsAdminOpen(modal === 'admin');
   };
 
   const pushNav = (view: AppView, modal?: ModalKind) => {
@@ -196,8 +192,8 @@ export default function App() {
             onSelectSong={handleOpenSong}
             onNewSong={handleNewSong}
             onOpenUpload={() => pushNav('list', 'search')}
-            onOpenSettings={() => pushNav('list', 'settings')}
-            onOpenAdmin={() => pushNav('list', 'admin')}
+            onOpenSettings={() => pushNav('account')}
+            onOpenAdmin={() => pushNav('admin')}
             isLight={isLight}
             onToggleTheme={toggleTheme}
           />
@@ -218,6 +214,18 @@ export default function App() {
 
         {currentView === 'editor' && <SongEditor song={editingSong} initialBlock={editingBlock} onBack={goBack} onSaved={handleSavedSong} />}
 
+        {currentView === 'account' && (
+          <AccountScreen
+            onBack={() => {
+              goBack();
+              setUserPrefs(getPreferences());
+            }}
+            onRefresh={() => setUserPrefs(getPreferences())}
+          />
+        )}
+
+        {currentView === 'admin' && user.role === 'admin' && <AdminScreen onBack={goBack} />}
+
         {toast && (
           <div className="absolute top-24 left-1/2 -translate-x-1/2 z-[60] px-4 py-2.5 rounded-full bg-zinc-900/80 border border-white/20 backdrop-blur-xl text-[13px] font-bold shadow-xl">
             {toast}
@@ -230,20 +238,6 @@ export default function App() {
           onClose={closeModal}
           onSongCreated={handleSongCreatedFromUpload}
         />
-
-        {/* Settings & Cloud Sync Modal */}
-        <SettingsModal
-          isOpen={isSettingsOpen}
-          onClose={() => {
-            closeModal();
-            setUserPrefs(getPreferences());
-          }}
-          onRefresh={() => {
-            setUserPrefs(getPreferences());
-          }}
-        />
-
-        {isAdminOpen && user.role === 'admin' && <AdminPanel onClose={closeModal} />}
 
         {showExitConfirm && (
           <div className="absolute inset-0 z-[70] flex items-center justify-center p-6 bg-black/60 backdrop-blur-md">
