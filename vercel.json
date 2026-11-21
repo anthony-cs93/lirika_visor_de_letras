@@ -3,6 +3,7 @@
   "framework": "vite",
   "buildCommand": "vite build",
   "outputDirectory": "dist",
+  "regions": ["pdx1"],
   "functions": {
     "api/**/*.ts": {
       "maxDuration": 30

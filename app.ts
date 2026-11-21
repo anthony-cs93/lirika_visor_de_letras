@@ -207,7 +207,7 @@ async function migrateOwnership() {
       args: [adminId, String(s.id), s.isFavorite ? 1 : 0, JSON.stringify(s.groupIds ?? []), new Date(s.updatedAt || 0).toISOString()],
     }));
   if (stmts.length) await db.batch(stmts, 'write');
-  await db.execute("INSERT INTO app_flags (key) VALUES ('ownership_v1')");
+  await db.execute("INSERT OR IGNORE INTO app_flags (key) VALUES ('ownership_v1')");
 }
 
 // Gives every existing (non-guest) account its own copy of the songs it used to share. Accounts created
@@ -222,7 +222,7 @@ async function migrateOwnCopies() {
     if (guest && String(u.username).toLowerCase() === guest) continue;
     await upsertUserSongs(String(u.id), await legacySharedView(String(u.id)));
   }
-  await db.execute("INSERT INTO app_flags (key) VALUES ('own_copies_v1')");
+  await db.execute("INSERT OR IGNORE INTO app_flags (key) VALUES ('own_copies_v1')");
 }
 
 const dbReady = initDb().then(migrateOwnership).then(migrateOwnCopies);
