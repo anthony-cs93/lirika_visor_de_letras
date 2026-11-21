@@ -50,7 +50,7 @@ async function initDb() {
   } catch {
     // column already exists
   }
-  // Private catalog of the guest account (the shared "songs" table is never visible to it)
+  // Each account's own songs (the old shared "songs" table is only kept as a backup of the pre-copies catalog)
   await db.execute(
     'CREATE TABLE IF NOT EXISTS user_songs (user_id TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (user_id, id))'
   );
@@ -108,13 +108,13 @@ async function upsertSongs(songs: any[]) {
 type Me = { id: string; isGuest: boolean };
 const me = (req: express.Request) => (req as any).user as Me;
 
-// Guest account: its own songs, never the shared catalog
-async function getGuestSongs(userId: string): Promise<any[]> {
+// Every account (guest included) has its own copy of the songs: edits, favorites and groups are private
+async function getUserSongs(userId: string): Promise<any[]> {
   const { rows } = await db.execute({ sql: 'SELECT data FROM user_songs WHERE user_id = ?', args: [userId] });
   return rows.map((r) => JSON.parse(r.data as string));
 }
 
-async function upsertGuestSongs(userId: string, songs: any[]) {
+async function upsertUserSongs(userId: string, songs: any[]) {
   const valid = songs.filter((s) => s && s.id);
   if (valid.length === 0) return;
   await db.batch(
@@ -128,6 +128,20 @@ async function upsertGuestSongs(userId: string, songs: any[]) {
   );
 }
 
+// The Lirika catalog: what the admin accounts have in their own libraries (newest copy wins on duplicates)
+async function getCatalogSongs(): Promise<any[]> {
+  const { rows } = await db.execute(
+    "SELECT us.data FROM user_songs us JOIN users u ON u.id = us.user_id WHERE u.role = 'admin'"
+  );
+  const byId = new Map<string, any>();
+  for (const r of rows) {
+    const song = JSON.parse(r.data as string);
+    const cur = byId.get(String(song.id));
+    if (!cur || new Date(song.updatedAt || 0) > new Date(cur.updatedAt || 0)) byId.set(String(song.id), song);
+  }
+  return [...byId.values()].filter((s) => !s.deletedAt);
+}
+
 // Copies the songs the admin picked into the guest's own catalog; each one is copied only once,
 // so what the guest later edits or deletes is not undone.
 async function seedGuest(userId: string) {
@@ -135,28 +149,33 @@ async function seedGuest(userId: string) {
     'SELECT song_id FROM guest_seed WHERE song_id NOT IN (SELECT song_id FROM guest_seeded)'
   );
   if (!rows.length) return;
-  const pool = new Map((await getPoolSongs()).map((s) => [String(s.id), s]));
+  const pool = new Map((await getCatalogSongs()).map((s) => [String(s.id), s]));
   const now = new Date().toISOString();
   const copies: any[] = [];
   for (const r of rows) {
     const song = pool.get(String(r.song_id));
     if (song && !song.deletedAt) copies.push({ ...song, isFavorite: false, groupIds: [], updatedAt: now });
   }
-  await upsertGuestSongs(userId, copies);
+  await upsertUserSongs(userId, copies);
   await db.batch(
     rows.map((r) => ({ sql: 'INSERT OR IGNORE INTO guest_seeded (song_id) VALUES (?)', args: [String(r.song_id)] })),
     'write'
   );
 }
 
-// Everyone else: shared songs, with this user's own favorites and groups laid over them
 async function getSongsFor(user: Me): Promise<any[]> {
-  if (user.isGuest) {
-    await seedGuest(user.id);
-    return getGuestSongs(user.id);
-  }
+  if (user.isGuest) await seedGuest(user.id);
+  return getUserSongs(user.id);
+}
+
+async function saveSongsFor(user: Me, songs: any[]) {
+  await upsertUserSongs(user.id, songs);
+}
+
+// Before accounts had their own copies, every non-guest account saw the shared catalog with its own favorites/groups on top
+async function legacySharedView(userId: string): Promise<any[]> {
   const meta = new Map<string, { fav: boolean; groups: string[] }>();
-  const { rows } = await db.execute({ sql: 'SELECT song_id, is_favorite, group_ids FROM song_meta WHERE user_id = ?', args: [user.id] });
+  const { rows } = await db.execute({ sql: 'SELECT song_id, is_favorite, group_ids FROM song_meta WHERE user_id = ?', args: [userId] });
   for (const r of rows) {
     let groups: string[] = [];
     try {
@@ -170,22 +189,6 @@ async function getSongsFor(user: Me): Promise<any[]> {
     const m = meta.get(String(s.id));
     return { ...s, isFavorite: m?.fav ?? false, groupIds: m?.groups ?? [] };
   });
-}
-
-async function saveSongsFor(user: Me, songs: any[]) {
-  if (user.isGuest) return upsertGuestSongs(user.id, songs);
-  const valid = songs.filter((s) => s && s.id);
-  const metaStmts = valid
-    .filter((s) => s.isFavorite !== undefined || s.groupIds !== undefined)
-    .map((s) => ({
-      sql: `INSERT INTO song_meta (user_id, song_id, is_favorite, group_ids, updated_at) VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(user_id, song_id) DO UPDATE SET is_favorite = excluded.is_favorite, group_ids = excluded.group_ids,
-              updated_at = excluded.updated_at WHERE excluded.updated_at >= song_meta.updated_at`,
-      args: [user.id, String(s.id), s.isFavorite ? 1 : 0, JSON.stringify(s.groupIds ?? []), new Date(s.updatedAt || 0).toISOString()],
-    }));
-  if (metaStmts.length) await db.batch(metaStmts, 'write');
-  // Favorites/groups are personal: they are not stored in the shared song
-  await upsertSongs(valid.map(({ isFavorite, groupIds, ...shared }) => shared));
 }
 
 // Before per-user favorites/groups existed, they were global: hand them to the first admin once.
@@ -207,7 +210,22 @@ async function migrateOwnership() {
   await db.execute("INSERT INTO app_flags (key) VALUES ('ownership_v1')");
 }
 
-const dbReady = initDb().then(migrateOwnership);
+// Gives every existing (non-guest) account its own copy of the songs it used to share. Accounts created
+// afterwards start empty and add songs from the Lirika catalog or from the web.
+async function migrateOwnCopies() {
+  await authReady;
+  const done = await db.execute("SELECT 1 FROM app_flags WHERE key = 'own_copies_v1'");
+  if (done.rows.length) return;
+  const guest = (process.env.VITE_GUEST_USERNAME || '').trim().toLowerCase();
+  const { rows: users } = await db.execute('SELECT id, username FROM users');
+  for (const u of users) {
+    if (guest && String(u.username).toLowerCase() === guest) continue;
+    await upsertUserSongs(String(u.id), await legacySharedView(String(u.id)));
+  }
+  await db.execute("INSERT INTO app_flags (key) VALUES ('own_copies_v1')");
+}
+
+const dbReady = initDb().then(migrateOwnership).then(migrateOwnCopies);
 dbReady.catch((err) => console.error('Turso init failed:', err));
 
 // API: Healthcheck
@@ -220,7 +238,7 @@ app.get('/api/health', async (_req, res) => {
   };
   try {
     await dbReady;
-    const { rows } = await db.execute('SELECT COUNT(*) AS n FROM songs WHERE deleted_at IS NULL');
+    const { rows } = await db.execute('SELECT COUNT(*) AS n FROM user_songs');
     database.reachable = true;
     database.songs = Number(rows[0].n);
   } catch (err: any) {
@@ -262,8 +280,8 @@ app.post('/api/sync/push', async (req, res) => {
   }
 });
 
-// API: General database search. Looks through every (non-deleted) song stored in the shared cloud database,
-// ignoring case and accents. This is the first step of the lyrics search; web engines come only if it finds nothing.
+// API: Lirika catalog search. Looks through the songs the admin accounts have uploaded, ignoring case and accents.
+// It is listed first in the lyrics search; web engines follow.
 const normalize = (v: string) => v.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
 
 app.get('/api/songs/search', async (req, res) => {
@@ -272,8 +290,7 @@ app.get('/api/songs/search', async (req, res) => {
   try {
     await dbReady;
     const words = q.split(/\s+/).filter(Boolean);
-    const results = (await getSongsFor(me(req)))
-      .filter((s) => !s.deletedAt)
+    const results = (await getCatalogSongs())
       .map((s) => {
         const head = normalize(`${s.title || ''} ${s.artist || ''}`);
         const haystack = `${head} ${normalize(s.lyrics || '')}`;
@@ -293,8 +310,9 @@ app.get('/api/songs/search', async (req, res) => {
         artist: s.artist || 'Artista desconocido',
         album: s.album || '',
         plainLyrics: s.lyrics || '',
-        song: s,
-        source: 'general',
+        // The copy a user receives starts clean: no favorite, no groups
+        song: { ...s, isFavorite: false, groupIds: [] },
+        source: 'lirika',
         needsFetch: false,
       }));
     res.json({ results });
@@ -391,8 +409,7 @@ app.delete('/api/groups/:id', async (req, res) => {
 app.get('/api/admin/guest-seed', requireAdmin, async (_req, res) => {
   try {
     await dbReady;
-    const songs = (await getPoolSongs())
-      .filter((s) => !s.deletedAt)
+    const songs = (await getCatalogSongs())
       .map((s) => ({ id: String(s.id), title: s.title || 'Sin título', artist: s.artist || '' }))
       .sort((a, b) => a.title.localeCompare(b.title, 'es'));
     const { rows } = await db.execute('SELECT song_id FROM guest_seed');

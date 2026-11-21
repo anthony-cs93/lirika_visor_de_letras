@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import { Lock } from 'lucide-react';
 
 // Protección temporal contra borrados/ediciones accidentales. Cambia el PIN aquí.
+// Desactivado: cada cuenta trabaja con su propia copia de las canciones. Pon true para volver a pedir el PIN.
+const PIN_ENABLED = false;
 const SECURITY_PIN = '2121';
 const PIN_LENGTH = SECURITY_PIN.length;
 const PIN_TTL_MS = 5 * 60_000;
@@ -20,7 +22,7 @@ export function usePinGuard() {
   const pending = useRef<(() => void) | null>(null);
 
   const guard = useCallback((action: () => void) => {
-    if (isUnlocked()) {
+    if (!PIN_ENABLED || isUnlocked()) {
       action();
       return;
     }

@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react';
 import { Search, X, Loader2, ExternalLink, ChevronLeft, AlertCircle, Sparkles, Download, FolderOpen } from 'lucide-react';
 import { Song } from '../types/song';
 import { cleanLrcContent } from '../utils/lyricsParser';
-import { upsertSong } from '../utils/storage';
+import { upsertSong, getSongById } from '../utils/storage';
 import { apiFetch } from '../utils/auth';
 
 interface LyricsSearchModalProps {
@@ -11,17 +11,17 @@ interface LyricsSearchModalProps {
   onSongCreated: (song: Song) => void;
 }
 
-type SourceKey = 'general' | 'lrclib' | 'letras';
+type SourceKey = 'lirika' | 'lrclib' | 'letras';
 
 // Every search queries all sources at once; results are listed in this order, each tagged with where it comes from
-const SOURCE_ORDER: SourceKey[] = ['general', 'lrclib', 'letras'];
+const SOURCE_ORDER: SourceKey[] = ['lirika', 'lrclib', 'letras'];
 const SOURCE_LABEL: Record<SourceKey, string> = {
-  general: 'Base de datos',
+  lirika: 'Lirika',
   lrclib: 'LRCLIB',
   letras: 'Letras.com',
 };
 const SOURCE_TAG: Record<SourceKey, string> = {
-  general: 'bg-emerald-400/15 text-emerald-300',
+  lirika: 'bg-[#7e3afc]/25 text-[#b79bff]',
   lrclib: 'bg-sky-400/15 text-sky-300',
   letras: 'bg-violet-400/15 text-violet-300',
 };
@@ -32,7 +32,7 @@ interface WebResult {
   artist: string;
   album?: string;
   source: SourceKey;
-  song?: Song; // full song when the result comes from the general database
+  song?: Song; // full song when the result comes from the Lirika catalog
   plainLyrics?: string;
   syncedLyrics?: string;
   pageUrl?: string;
@@ -102,7 +102,7 @@ export function LyricsSearchModal({ isOpen, onClose, onSongCreated }: LyricsSear
     };
     const enc = encodeURIComponent(q);
     const fetchers: Record<SourceKey, () => Promise<WebResult[]>> = {
-      general: () => getResults(`/api/songs/search?q=${enc}`),
+      lirika: () => getResults(`/api/songs/search?q=${enc}`),
       lrclib: () => getResults(`/api/lyrics/web-search?source=lrclib&q=${enc}`),
       letras: () => getResults(`/api/lyrics/web-search?source=letras&q=${enc}`),
     };
@@ -137,9 +137,9 @@ export function LyricsSearchModal({ isOpen, onClose, onSongCreated }: LyricsSear
   const pickResult = async (item: WebResult) => {
     setError(null);
     setBlockedUrl(null);
-    if (item.source === 'general' && item.song) {
-      // Already in the shared database: add it to this device's library if needed and open it
-      onSongCreated(upsertSong({ ...item.song, source: item.song.source ?? 'cloud' }));
+    if (item.source === 'lirika' && item.song) {
+      // Lirika catalog: the user gets their own copy. If they already have it, open theirs (never overwrite their edits)
+      onSongCreated(getSongById(item.song.id) ?? upsertSong({ ...item.song, isFavorite: false, groupIds: [], source: item.song.source ?? 'cloud' }));
       clearState();
       return;
     }
@@ -297,7 +297,7 @@ export function LyricsSearchModal({ isOpen, onClose, onSongCreated }: LyricsSear
         ) : (
           <div className="p-5 overflow-y-auto space-y-3 text-sm">
             <p className="text-[11px] text-zinc-400">
-              Busca a la vez en la base de datos general, LRCLIB y Letras.com. Cada resultado indica de dónde viene.
+              Busca a la vez en Lirika, LRCLIB y Letras.com. Cada resultado indica de dónde viene.
             </p>
 
             <form onSubmit={runSearch} className="flex gap-2">
@@ -363,12 +363,12 @@ export function LyricsSearchModal({ isOpen, onClose, onSongCreated }: LyricsSear
                 >
                   {fetchingId === item.id ? (
                     <Loader2 className="w-3 h-3 animate-spin" />
-                  ) : item.source === 'general' ? (
+                  ) : item.source === 'lirika' ? (
                     <FolderOpen className="w-3 h-3" />
                   ) : (
                     <Download className="w-3 h-3" />
                   )}
-                  {item.source === 'general' ? 'Abrir' : 'Extraer'}
+                  {item.source === 'lirika' ? (item.song && getSongById(item.song.id) ? 'Abrir' : 'Añadir') : 'Extraer'}
                 </button>
               </div>
             ))}
