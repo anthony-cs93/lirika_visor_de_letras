@@ -225,8 +225,10 @@ export async function triggerCloudSync(): Promise<{ success: boolean; count?: nu
     const data = await response.json();
     if (data.success && Array.isArray(data.songs)) {
       // Merge cloud changes back into local storage
+      // Merge into the *current* store, not the snapshot that was pushed: edits made while the
+      // request was in flight (e.g. toggling a heart) would otherwise be overwritten and flip back.
       const mergedMap = new Map<string, Song>();
-      localSongs.forEach(s => mergedMap.set(s.id, s));
+      readAllSongs().forEach(s => mergedMap.set(s.id, s));
       data.songs.forEach((s: Song) => {
         const existing = mergedMap.get(s.id);
         if (!existing) {
