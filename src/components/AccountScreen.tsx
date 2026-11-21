@@ -127,6 +127,7 @@ export function AccountScreen({ onBack, onRefresh }: AccountScreenProps) {
       </section>
 
       {/* Security */}
+      {!user.isGuest && (
       <section>
         <SectionTitle>Seguridad</SectionTitle>
         <div className={`${CARD} overflow-hidden`}>
@@ -167,6 +168,7 @@ export function AccountScreen({ onBack, onRefresh }: AccountScreenProps) {
           )}
         </div>
       </section>
+      )}
 
       {/* Cloud */}
       <section>
