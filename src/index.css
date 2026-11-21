@@ -10,6 +10,9 @@
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
 
+/* Live mode (mobile): dragging down must not trigger the browser's pull-to-refresh */
+html.live-mode, html.live-mode body { overscroll-behavior-y: none; }
+
 :root {
   --ink: #f4f2ee;
   --page: #0b0b10;

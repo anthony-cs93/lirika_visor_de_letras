@@ -506,6 +506,11 @@ export function SongViewer({
   const GLASS = 'bg-white/[0.07] border border-white/[0.14] backdrop-blur-xl';
   const DOCK = 'bg-[color:var(--dock)] border border-white/[0.16] backdrop-blur-2xl shadow-[0_12px_40px_rgba(0,0,0,0.45)]';
   const isLive = displayMode === 'live';
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('live-mode', isLive);
+    return () => document.documentElement.classList.remove('live-mode');
+  }, [isLive]);
   const textStyleClasses = `${getFontFamilyClass(fontFamily)} ${getLineHeightClass(lineHeight)} ${getTextAlignClass(
     align
   )} ${isBold ? 'font-bold' : ''} ${isItalic ? 'italic' : ''} ${getTextTransformClass(textTransform)}`;
@@ -665,7 +670,7 @@ export function SongViewer({
         {isLive ? (
           <div
             ref={liveRef}
-            className="flex-1 flex flex-col justify-center gap-[18px] px-5 pb-24 overflow-y-auto no-scrollbar"
+            className="flex-1 flex flex-col justify-center gap-[18px] px-5 pb-24 overflow-y-auto overscroll-y-contain no-scrollbar"
             onWheel={handleLiveWheel}
             onTouchStart={handleLiveTouchStart}
             onTouchEnd={handleLiveTouchEnd}
