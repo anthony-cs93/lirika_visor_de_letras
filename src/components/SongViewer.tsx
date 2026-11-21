@@ -420,11 +420,32 @@ export function SongViewer({
   const liveTouch = useRef<{ x: number; y: number; atTop: boolean; atBottom: boolean } | null>(null);
   const LIVE_NAV_COOLDOWN_MS = 500; // one gesture = one section (trackpads/inertia emit many wheel events)
 
+  // A section that overflows the screen by only a few px (big text) must not scroll: it counts as fitting,
+  // so every gesture changes section instead of nudging the content.
+  const LIVE_OVERFLOW_TOLERANCE_PX = 96;
+  const liveFits = (c: HTMLElement) => c.scrollHeight - c.clientHeight <= LIVE_OVERFLOW_TOLERANCE_PX;
+
   const liveEdges = () => {
     const c = liveRef.current;
-    if (!c) return { atTop: true, atBottom: true };
+    if (!c || liveFits(c)) return { atTop: true, atBottom: true };
     return { atTop: c.scrollTop <= 2, atBottom: c.scrollTop + c.clientHeight >= c.scrollHeight - 2 };
   };
+
+  // Lock scrolling when the section fits (re-checked whenever the text or the layout changes)
+  useEffect(() => {
+    const c = liveRef.current;
+    if (displayMode !== 'live' || !c) return;
+    const update = () => {
+      const fits = liveFits(c);
+      c.style.overflowY = fits ? 'hidden' : '';
+      if (fits) c.scrollTop = 0;
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(c);
+    Array.from(c.children).forEach((el) => ro.observe(el));
+    return () => ro.disconnect();
+  }, [displayMode, currentBlockIndex, livePage, fontSize, panel]);
 
   const liveGo = (direction: 1 | -1) => {
     const now = Date.now();
