@@ -65,6 +65,12 @@ html.live-mode, html.live-mode body { overscroll-behavior-y: none; }
 @keyframes slideFromTop {
   from { opacity: 0; transform: translateY(-46px); }
 }
+@keyframes pageFromBottom {
+  from { opacity: 0; transform: translateY(22px); }
+}
+@keyframes pageFromTop {
+  from { opacity: 0; transform: translateY(-22px); }
+}
 @keyframes fadeIn {
   from { opacity: 0; }
 }

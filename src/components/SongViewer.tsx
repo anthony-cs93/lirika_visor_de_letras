@@ -352,6 +352,23 @@ export function SongViewer({
       ? 'animate-[slideFromBottom_0.42s_cubic-bezier(0.2,0.9,0.3,1)]'
       : 'animate-[slideFromTop_0.42s_cubic-bezier(0.2,0.9,0.3,1)]';
 
+  // Page changes inside one section: the lines slide in (title and dots stay still). A section change
+  // remounts the whole block, which already animates, so it must not add a page animation on top.
+  const lastPageRef = useRef({ block: currentBlockIndex, page: livePage });
+  const pageSlideRef = useRef<'' | 'next' | 'prev'>('');
+  if (lastPageRef.current.block !== currentBlockIndex) {
+    pageSlideRef.current = '';
+  } else if (lastPageRef.current.page !== livePage) {
+    pageSlideRef.current = livePage > lastPageRef.current.page ? 'next' : 'prev';
+  }
+  lastPageRef.current = { block: currentBlockIndex, page: livePage };
+  const pageSlideClass =
+    pageSlideRef.current === 'next'
+      ? 'animate-[pageFromBottom_0.3s_cubic-bezier(0.2,0.9,0.3,1)]'
+      : pageSlideRef.current === 'prev'
+        ? 'animate-[pageFromTop_0.3s_cubic-bezier(0.2,0.9,0.3,1)]'
+        : '';
+
   // Keep the active section chip visible in the chips row (card tap -> chip, mirrors chip tap -> card)
   const chipsRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -871,7 +888,7 @@ export function SongViewer({
                   <div
                     key={p}
                     style={{ gridArea: '1 / 1' }}
-                    className={p === livePage ? '' : 'invisible'}
+                    className={p === livePage ? pageSlideClass : 'invisible'}
                     aria-hidden={p === livePage ? undefined : true}
                   >
                     {page.map((line, i) => (
