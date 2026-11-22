@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import {
   Search,
   Plus,
@@ -36,6 +36,7 @@ import { randomFavMessage } from '../utils/favMessages';
 import { SongGroup, MAX_GROUPS, GROUP_NAME_MAX, readCachedGroups, fetchGroups, groupsApi } from '../utils/groups';
 import {
   getLocalSongs,
+  getStorageUserId,
   toggleFavoriteSong,
   toggleSongGroup,
   setGroupOrder,
@@ -47,6 +48,11 @@ import {
 } from '../utils/storage';
 import { apiFetch } from '../utils/auth';
 import { LogoHorizontal } from './Logo';
+
+// Where the user was in the list (tab and scroll): the list unmounts while a song is open,
+// so this lets "back" return to the same group instead of the whole library.
+let listMemory: { userId: string | null; tab: string; scroll: number } | null = null;
+const remembered = () => (listMemory && listMemory.userId === getStorageUserId() ? listMemory : null);
 
 interface SongListProps {
   onSelectSong: (song: Song) => void;
@@ -99,7 +105,7 @@ export function SongList({
         : { by, dir: by === 'alpha' ? 'asc' : 'desc' } // A-Z and newest first by default
     );
 
-  const [filterTab, setFilterTab] = useState<string>('all'); // 'all' | 'favorites' | 'uploaded' | 'chorus' | `group:<id>`
+  const [filterTab, setFilterTab] = useState<string>(() => remembered()?.tab ?? 'all'); // 'all' | 'favorites' | 'uploaded' | 'chorus' | `group:<id>`
 
   // Groups (folders): up to MAX_GROUPS, shown after "Favoritas"
   const [groups, setGroups] = useState<SongGroup[]>(readCachedGroups());
@@ -224,6 +230,14 @@ export function SongList({
   // ---- Drag to reorder (groups only; the grip handle starts it) ----
   const canReorder = !!groupTabId && !searchQuery.trim() && !isSearchingOnline;
   const listRef = useRef<HTMLDivElement>(null);
+  // Restore the scroll position on return (once, with the first render of the list)
+  useLayoutEffect(() => {
+    const m = remembered();
+    if (m && listRef.current) listRef.current.scrollTop = m.scroll;
+  }, []);
+  useEffect(() => {
+    listMemory = { userId: getStorageUserId(), tab: filterTab, scroll: listMemory?.tab === filterTab ? listMemory.scroll : 0 };
+  }, [filterTab]);
   const rowRefs = useRef(new Map<string, HTMLElement>());
   const [drag, setDrag] = useState<{ id: string; from: number; to: number; dy: number; h: number } | null>(null);
   const dragInfo = useRef<{
@@ -678,6 +692,9 @@ export function SongList({
         {/* Content */}
         <div
           ref={listRef}
+          onScroll={(e) => {
+            if (listMemory) listMemory.scroll = e.currentTarget.scrollTop;
+          }}
           className={`flex-1 overflow-y-auto no-scrollbar px-5 pt-6 pb-32 space-y-2 [mask-image:linear-gradient(transparent,#000_22px)] ${
             drag ? 'touch-none' : ''
           }`}
