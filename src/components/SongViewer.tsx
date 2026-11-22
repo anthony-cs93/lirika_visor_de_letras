@@ -585,7 +585,10 @@ export function SongViewer({
     const ro = new ResizeObserver(update);
     ro.observe(c);
     Array.from(c.children).forEach((el) => ro.observe(el));
-    return () => ro.disconnect();
+    return () => {
+      ro.disconnect();
+      c.style.overflowY = ''; // never leave the Live lock behind (Full must scroll)
+    };
   }, [displayMode, currentBlockIndex, livePage, fontSize, panel]);
 
   const liveGo = (direction: 1 | -1) => {
@@ -831,6 +834,7 @@ export function SongViewer({
         {/* Lyrics */}
         {isLive ? (
           <div
+            key="live"
             ref={liveRef}
             className="flex-1 flex flex-col justify-center gap-[18px] px-5 pb-24 overflow-y-auto overscroll-y-contain no-scrollbar"
             onWheel={handleLiveWheel}
@@ -923,6 +927,7 @@ export function SongViewer({
           </div>
         ) : (
           <div
+            key="full"
             ref={scrollContainerRef}
             onScroll={syncSectionWithScroll}
             onTouchStart={handleTouchStart}
