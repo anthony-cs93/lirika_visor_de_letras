@@ -49,6 +49,7 @@ export interface Song {
   tags?: string[];
   isFavorite?: boolean;
   groupIds?: string[]; // user-created folders this song belongs to
+  groupOrder?: Record<string, number>; // position of the song inside each group (manual order)
   createdAt: string;
   updatedAt: string;
   deletedAt?: string; // set when deleted; kept as a tombstone so the deletion syncs

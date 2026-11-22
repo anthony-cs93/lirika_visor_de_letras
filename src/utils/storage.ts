@@ -149,10 +149,31 @@ export function toggleSongGroup(id: string, groupId: string): boolean {
   const current = target.groupIds ?? [];
   const inGroup = current.includes(groupId);
   target.groupIds = inGroup ? current.filter(g => g !== groupId) : [...current, groupId];
+  if (inGroup && target.groupOrder) {
+    const { [groupId]: _removed, ...rest } = target.groupOrder;
+    target.groupOrder = Object.keys(rest).length ? rest : undefined;
+  }
   target.updatedAt = new Date().toISOString();
   writeAllSongs(songs);
   triggerCloudSync();
   return !inGroup;
+}
+
+// Manual order of the songs inside a group: ids in the order they should appear
+export function setGroupOrder(groupId: string, orderedIds: string[]): void {
+  const songs = readAllSongs();
+  const now = new Date().toISOString();
+  let changed = false;
+  orderedIds.forEach((id, pos) => {
+    const target = songs.find(s => s.id === id && !s.deletedAt);
+    if (!target || target.groupOrder?.[groupId] === pos) return;
+    target.groupOrder = { ...target.groupOrder, [groupId]: pos };
+    target.updatedAt = now;
+    changed = true;
+  });
+  if (!changed) return;
+  writeAllSongs(songs);
+  triggerCloudSync();
 }
 
 // Cloud synchronization logic

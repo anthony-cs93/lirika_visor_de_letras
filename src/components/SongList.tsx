@@ -24,6 +24,7 @@ import {
   ArrowUp,
   ArrowDown,
   Pencil,
+  GripVertical,
 } from 'lucide-react';
 import { Song, CloudSyncStatus } from '../types/song';
 import { parseLyricsToBlocks } from '../utils/lyricsParser';
@@ -37,6 +38,7 @@ import {
   getLocalSongs,
   toggleFavoriteSong,
   toggleSongGroup,
+  setGroupOrder,
   deleteSong,
   upsertSong,
   subscribeToStore,
@@ -203,11 +205,117 @@ export function SongList({
   const sign = sort.dir === 'asc' ? 1 : -1;
   // Alphabetical order ignores leading punctuation, so "¿Quién es?" is filed under Q
   const sortKey = (title: string) => title.replace(/^[^\p{L}\p{N}]+/u, '');
+  const groupTabId = filterTab.startsWith('group:') ? filterTab.slice(6) : null;
   filteredSongs.sort((a, b) =>
     sort.by === 'alpha'
       ? sign * sortKey(a.title).localeCompare(sortKey(b.title), 'es', { sensitivity: 'base' })
       : sign * (new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
   );
+  if (groupTabId) {
+    // Inside a group the order is the one the user dragged; songs never placed yet go last (alphabetical)
+    const pos = (s: Song) => s.groupOrder?.[groupTabId] ?? Number.MAX_SAFE_INTEGER;
+    filteredSongs.sort(
+      (a, b) =>
+        pos(a) - pos(b) ||
+        sortKey(a.title).localeCompare(sortKey(b.title), 'es', { sensitivity: 'base' })
+    );
+  }
+
+  // ---- Drag to reorder (groups only; the grip handle starts it) ----
+  const canReorder = !!groupTabId && !searchQuery.trim() && !isSearchingOnline;
+  const listRef = useRef<HTMLDivElement>(null);
+  const rowRefs = useRef(new Map<string, HTMLElement>());
+  const [drag, setDrag] = useState<{ id: string; from: number; to: number; dy: number; h: number } | null>(null);
+  const dragInfo = useRef<{
+    id: string;
+    from: number;
+    startY: number;
+    startScroll: number;
+    centers: number[]; // row centers in list (content) coordinates, at drag start
+    h: number; // dragged row height + gap
+    pointerY: number;
+    raf: number;
+    order: string[];
+  } | null>(null);
+  const DRAG_GAP_PX = 8; // space-y-2
+  const EDGE_PX = 64;
+
+  const dragUpdate = () => {
+    const info = dragInfo.current;
+    const list = listRef.current;
+    if (!info || !list) return;
+    const dy = info.pointerY - info.startY + (list.scrollTop - info.startScroll);
+    const center = info.centers[info.from] + dy;
+    let to = 0;
+    info.centers.forEach((c, i) => {
+      if (i !== info.from && c < center) to++;
+    });
+    setDrag({ id: info.id, from: info.from, to, dy, h: info.h });
+  };
+
+  const dragAutoScroll = () => {
+    const info = dragInfo.current;
+    const list = listRef.current;
+    if (!info || !list) return;
+    const r = list.getBoundingClientRect();
+    let speed = 0;
+    if (info.pointerY < r.top + EDGE_PX) speed = -Math.ceil(((r.top + EDGE_PX - info.pointerY) / EDGE_PX) * 12);
+    else if (info.pointerY > r.bottom - EDGE_PX) speed = Math.ceil(((info.pointerY - (r.bottom - EDGE_PX)) / EDGE_PX) * 12);
+    if (speed) {
+      list.scrollTop += speed;
+      dragUpdate();
+    }
+    info.raf = requestAnimationFrame(dragAutoScroll);
+  };
+
+  const handleDragStart = (e: React.PointerEvent<HTMLElement>, id: string) => {
+    const list = listRef.current;
+    if (!list || !canReorder) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const order = filteredSongs.map((s) => s.id);
+    const from = order.indexOf(id);
+    const listTop = list.getBoundingClientRect().top;
+    const centers = order.map((sid) => {
+      const r = rowRefs.current.get(sid)?.getBoundingClientRect();
+      return r ? r.top - listTop + list.scrollTop + r.height / 2 : 0;
+    });
+    const dragged = rowRefs.current.get(id)?.getBoundingClientRect();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragInfo.current = {
+      id,
+      from,
+      startY: e.clientY,
+      startScroll: list.scrollTop,
+      centers,
+      h: (dragged?.height ?? 64) + DRAG_GAP_PX,
+      pointerY: e.clientY,
+      raf: requestAnimationFrame(dragAutoScroll),
+      order,
+    };
+    navigator.vibrate?.(10);
+    dragUpdate();
+  };
+
+  const handleDragMove = (e: React.PointerEvent<HTMLElement>) => {
+    if (!dragInfo.current) return;
+    dragInfo.current.pointerY = e.clientY;
+    dragUpdate();
+  };
+
+  const handleDragEnd = (commit: boolean) => {
+    const info = dragInfo.current;
+    dragInfo.current = null;
+    if (!info) return;
+    cancelAnimationFrame(info.raf);
+    const cur = drag;
+    setDrag(null);
+    if (commit && cur && groupTabId && cur.to !== cur.from) {
+      const next = info.order.filter((sid) => sid !== info.id);
+      next.splice(cur.to, 0, info.id);
+      setGroupOrder(groupTabId, next);
+    }
+  };
 
   const handleDeleteSong = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
@@ -515,7 +623,7 @@ export function SongList({
           )}
         </div>
 
-        {!isSearchingOnline && (
+        {!isSearchingOnline && !groupTabId && (
           <div className="flex items-center gap-2 px-5 pb-2.5 shrink-0">
             <span className="text-[11px] font-bold uppercase tracking-wider opacity-45">Ordenar</span>
             {([
@@ -559,11 +667,21 @@ export function SongList({
             <button onClick={() => setDeleteGroupTarget(activeGroup)} className="flex items-center gap-1.5 text-[oklch(0.75_0.17_10)]">
               <Trash2 className="w-3.5 h-3.5" /> Eliminar grupo
             </button>
+            {canReorder && filteredSongs.length > 1 && (
+              <span className="ml-auto flex items-center gap-1 text-[11px] font-semibold opacity-60">
+                <GripVertical className="w-3.5 h-3.5" /> Arrastra para ordenar
+              </span>
+            )}
           </div>
         )}
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto no-scrollbar px-5 pt-6 pb-32 space-y-2 [mask-image:linear-gradient(transparent,#000_22px)]">
+        <div
+          ref={listRef}
+          className={`flex-1 overflow-y-auto no-scrollbar px-5 pt-6 pb-32 space-y-2 [mask-image:linear-gradient(transparent,#000_22px)] ${
+            drag ? 'touch-none' : ''
+          }`}
+        >
           {isSearchingOnline ? (
             <div className="space-y-3">
               <div className="flex items-center justify-between text-xs opacity-60 px-1">
@@ -648,7 +766,17 @@ export function SongList({
               )}
             </div>
           ) : filteredSongs.length > 0 ? (
-            filteredSongs.map((song) => {
+            filteredSongs.map((song, index) => {
+              // While dragging: the grabbed row follows the finger, the rows it passes slide out of the way
+              let dragStyle: React.CSSProperties | undefined;
+              if (drag) {
+                if (song.id === drag.id) {
+                  dragStyle = { transform: `translateY(${drag.dy}px) scale(1.02)`, transition: 'none', zIndex: 20, position: 'relative' };
+                } else {
+                  const shift = drag.from < drag.to && index > drag.from && index <= drag.to ? -drag.h : drag.to < drag.from && index >= drag.to && index < drag.from ? drag.h : 0;
+                  dragStyle = { transform: `translateY(${shift}px)`, transition: 'transform 200ms ease' };
+                }
+              }
               const sectionCount = parseLyricsToBlocks(song.lyrics).length;
               const meta = [
                 song.key ? `Tono ${song.key}` : '',
@@ -660,9 +788,32 @@ export function SongList({
               return (
                 <div
                   key={song.id}
+                  ref={(el) => {
+                    if (el) rowRefs.current.set(song.id, el);
+                    else rowRefs.current.delete(song.id);
+                  }}
+                  style={dragStyle}
                   onClick={() => onSelectSong(song)}
-                  className={`group py-2 pl-2.5 pr-1 rounded-[22px] flex items-center gap-2.5 cursor-pointer transition-all hover:bg-white/10 active:scale-[0.99] ${GLASS}`}
+                  className={`group py-2 pl-2.5 pr-1 rounded-[22px] flex items-center gap-2.5 cursor-pointer ${
+                    drag ? (song.id === drag.id ? 'shadow-[0_14px_36px_rgba(0,0,0,0.45)] ring-1 ring-[oklch(0.82_0.14_75_/_0.6)]' : '') : 'transition-all hover:bg-white/10 active:scale-[0.99]'
+                  } ${GLASS}`}
                 >
+                  {canReorder && (
+                    <button
+                      type="button"
+                      aria-label={`Reordenar ${song.title}`}
+                      title="Arrastra para reordenar"
+                      onClick={(e) => e.stopPropagation()}
+                      onPointerDown={(e) => handleDragStart(e, song.id)}
+                      onPointerMove={handleDragMove}
+                      onPointerUp={() => handleDragEnd(true)}
+                      onPointerCancel={() => handleDragEnd(false)}
+                      onContextMenu={(e) => e.preventDefault()}
+                      className="w-6 h-11 -mr-1 shrink-0 flex items-center justify-center touch-none cursor-grab active:cursor-grabbing text-[color:var(--ink)]/35 hover:text-[color:var(--ink)]/70"
+                    >
+                      <GripVertical className="w-[18px] h-[18px]" />
+                    </button>
+                  )}
                   <div
                     className="w-11 h-11 rounded-[14px] shrink-0 flex items-center justify-center text-lg font-extrabold text-[#0a0a0e]/75"
                     style={{ background: artGradient(song.title) }}
