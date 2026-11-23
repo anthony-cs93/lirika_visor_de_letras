@@ -66,7 +66,14 @@ const CACHE_KEY = 'lirika_auth_user';
 export function readCachedUser(): AuthUser | null {
   try {
     const raw = localStorage.getItem(CACHE_KEY);
-    return raw ? (JSON.parse(raw) as AuthUser) : null;
+    if (!raw) return null;
+    const user = JSON.parse(raw) as AuthUser;
+    // Caches written before isGuest existed: work it out from the shared account's name
+    if (typeof user.isGuest !== 'boolean') {
+      const guest = ((import.meta.env.VITE_GUEST_USERNAME as string | undefined) || '').trim().toLowerCase();
+      user.isGuest = !!guest && String(user.username).toLowerCase() === guest;
+    }
+    return user;
   } catch {
     return null;
   }

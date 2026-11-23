@@ -256,9 +256,12 @@ async function seedGuest(userId: string) {
   );
   if (!rows.length) return;
   const pool = new Map((await getCatalogSongs()).map((s) => [String(s.id), s]));
+  const masterIds = new Set((await getMasters()).map((m) => String(m.id)));
   const now = new Date().toISOString();
   const copies: any[] = [];
   for (const r of rows) {
+    // A master the admin picked reaches the guest as a master (see getSongsFor), not as a copy
+    if (masterIds.has(String(r.song_id))) continue;
     const song = pool.get(String(r.song_id));
     if (song && !song.deletedAt) copies.push({ ...song, isFavorite: false, groupIds: [], updatedAt: now });
   }
@@ -276,11 +279,14 @@ async function getSongsFor(user: Me): Promise<any[]> {
   const masterIds = new Set(masters.filter((m) => !m.deletedAt).map((m) => String(m.id)));
   const ownLive = new Set(own.filter((x) => !x.deletedAt).map((x) => String(x.id)));
   const meta = await getMasterMeta(user.id);
+  const picked = user.isGuest
+    ? new Set((await db.execute('SELECT song_id FROM guest_seed')).rows.map((r) => String(r.song_id)))
+    : new Set<string>();
 
   // Masters this account has not copied; the favorite/groups on them are this account's own.
-  // The guest account only has the masters it added itself.
+  // The guest account only has the masters it added itself plus the ones the admin picked for it.
   const shown = masters
-    .filter((m) => !ownLive.has(String(m.id)) && (!user.isGuest || meta.has(String(m.id))))
+    .filter((m) => !ownLive.has(String(m.id)) && (!user.isGuest || meta.has(String(m.id)) || picked.has(String(m.id))))
     .map((m) => {
       const mm = meta.get(String(m.id));
       return {
@@ -423,6 +429,12 @@ app.post('/api/sync/push', async (req, res) => {
     const { songs } = req.body;
     if (!Array.isArray(songs)) {
       return res.status(400).json({ error: 'Formato inválido de canciones' });
+    }
+
+    // The browser says whose songs these are; if the session is another account's, nothing is stored
+    const claimed = req.get('x-lirika-user');
+    if (claimed && claimed !== me(req).id) {
+      return res.status(409).json({ error: 'La sesión no corresponde a esta copia de canciones. Recarga la página.' });
     }
 
     await dbReady;

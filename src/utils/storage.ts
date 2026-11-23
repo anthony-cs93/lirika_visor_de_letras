@@ -25,8 +25,8 @@ export function setStorageUser(user: { id: string; isGuest: boolean } | null) {
 
 export const getStorageUserId = () => storageUserId;
 
-/** Songs a brand-new device starts with: the guest account starts empty (its songs come from the cloud). */
-const startingSongs = (): Song[] => (storageIsGuest ? [] : [...INITIAL_SONGS]);
+/** A device starts with no songs: every account's songs come from the cloud (nothing is carried over from another account). */
+const startingSongs = (): Song[] => [];
 
 // Listeners for reactive updates
 type Listener = () => void;
@@ -45,11 +45,12 @@ export function subscribeToStore(listener: Listener) {
 
 // Raw store: includes deleted songs (tombstones with deletedAt) so deletions can sync to the cloud
 function readAllSongs(): Song[] {
+  // No signed-in account yet (or any more): there are no songs to show and none must ever be uploaded
+  if (!storageUserId) return [];
   try {
-    // Accounts other than the guest keep the songs cached before per-account storage existed
-    const raw = localStorage.getItem(STORAGE_KEY) ?? (storageIsGuest ? null : localStorage.getItem(BASE_STORAGE_KEY));
+    const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
-      // First boot: initialize with default songs
+      // First boot of this account on this device: empty until the cloud answers
       const initial = startingSongs();
       localStorage.setItem(STORAGE_KEY, JSON.stringify(initial));
       return initial;
@@ -63,6 +64,7 @@ function readAllSongs(): Song[] {
 }
 
 function writeAllSongs(songs: Song[]): void {
+  if (!storageUserId) return;
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(songs));
     notify();
@@ -244,8 +246,10 @@ export async function triggerCloudSync(): Promise<{ success: boolean; count?: nu
     updateSyncStatus({ online: false });
     return { success: false };
   }
+  if (!storageUserId) return { success: false }; // nobody signed in: nothing to sync
 
   syncInProgress = true;
+  const syncUserId = storageUserId;
   updateSyncStatus({ isSyncing: true, error: null });
 
   try {
@@ -254,7 +258,8 @@ export async function triggerCloudSync(): Promise<{ success: boolean; count?: nu
     // Push local songs to cloud
     const response = await apiFetch('/api/sync/push', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      // The server refuses the upload if the session belongs to another account than the one these songs came from
+      headers: { 'Content-Type': 'application/json', 'X-Lirika-User': syncUserId },
       body: JSON.stringify({ songs: localSongs }),
     });
 
@@ -267,6 +272,7 @@ export async function triggerCloudSync(): Promise<{ success: boolean; count?: nu
       // Merge cloud changes back into local storage
       // Merge into the *current* store, not the snapshot that was pushed: edits made while the
       // request was in flight (e.g. toggling a heart) would otherwise be overwritten and flip back.
+      if (storageUserId !== syncUserId) throw new Error('La cuenta cambió durante la sincronización');
       const mergedMap = new Map<string, Song>();
       readAllSongs().forEach(s => mergedMap.set(s.id, s));
       data.songs.forEach((s: Song) => {
