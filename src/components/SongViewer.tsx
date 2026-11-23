@@ -349,8 +349,6 @@ export function SongViewer({
 
   // Refs for scrolling container & animation frame
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const animFrameRef = useRef<number | null>(null);
-  const lastTimeRef = useRef<number | null>(null);
   const blockRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
   // Screen Wake Lock API
@@ -493,81 +491,92 @@ export function SongViewer({
     }
   };
 
-  // Continuous Auto-Scroll Engine (for Standard Mode) or Section Pace (for Live Mode)
+  // ---- Auto-advance ----
+  // Live: how long each page stays on screen.
+  //  - px/s: the time it would take to scroll that many lines at the chosen speed (line height at the current size)
+  //  - total time: the song's time is shared among all pages, weighted by their number of lines
+  const LIVE_MIN_STEP_MS = 800;
+  const liveLineHeightPx = (fontSize + 9) * 1.28 + 6; // matches the Live line style
+  const livePagesLines = (idx: number) => paginateLines(blocks[idx]?.lines ?? []).map((pg) => Math.max(1, pg.length));
+  const liveTotalWeight = () => blocks.reduce((sum, _b, i) => sum + livePagesLines(i).reduce((a, n) => a + n, 0), 0);
+  const liveStepMs = (blockIdx: number, page: number) => {
+    const lines = livePagesLines(blockIdx)[page] ?? 1;
+    const ms =
+      scrollMode === 'px'
+        ? ((lines * liveLineHeightPx) / scrollPx) * 1000
+        : (scrollSecs * 1000 * lines) / Math.max(1, liveTotalWeight());
+    return Math.max(LIVE_MIN_STEP_MS, ms);
+  };
+
+  // Full: continuous scroll. The position is accumulated as a float and applied without the CSS smooth-scroll,
+  // because the browser rounds scrollTop to whole device pixels (adding a fraction of a px per frame would
+  // otherwise stall or speed up the text depending on the screen).
   useEffect(() => {
-    if (!isScrolling || isPausedByTouch) {
-      if (animFrameRef.current) {
-        cancelAnimationFrame(animFrameRef.current);
-        animFrameRef.current = null;
+    if (displayMode !== 'standard' || !isScrolling || isPausedByTouch) return;
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    let pos = container.scrollTop;
+    let lastSet = container.scrollTop;
+    let last: number | null = null;
+    let raf = 0;
+    const loop = (time: number) => {
+      const c = scrollContainerRef.current;
+      if (!c) return;
+      const dt = last === null ? 0 : Math.min((time - last) / 1000, 0.1); // a long frame must not make it jump
+      last = time;
+      // The user moved the text themselves (wheel, drag, chip): continue from where it is now
+      if (Math.abs(c.scrollTop - lastSet) > 1.5) pos = c.scrollTop;
+      const max = c.scrollHeight - c.clientHeight;
+      const speed = scrollMode === 'px' ? scrollPx : Math.max(1, max / scrollSecs);
+      pos = Math.min(max, pos + speed * dt);
+      c.scrollTo({ top: pos, behavior: 'instant' });
+      lastSet = c.scrollTop;
+      if (pos >= max - 1) {
+        setIsScrolling(false);
+        return;
       }
-      lastTimeRef.current = null;
-      return;
-    }
-
-    if (displayMode === 'standard') {
-      const scrollLoop = (time: number) => {
-        if (lastTimeRef.current === null) {
-          lastTimeRef.current = time;
-        }
-        const delta = (time - lastTimeRef.current) / 1000;
-        lastTimeRef.current = time;
-
-        const container = scrollContainerRef.current;
-        if (container) {
-          const speed =
-            scrollMode === 'px'
-              ? scrollPx
-              : Math.max(1, (container.scrollHeight - container.clientHeight) / scrollSecs);
-          const deltaPx = speed * delta;
-          container.scrollTop += deltaPx;
-
-          // Check if bottom reached
-          if (container.scrollTop + container.clientHeight >= container.scrollHeight - 5) {
-            setIsScrolling(false);
-            return;
-          }
-        }
-
-        animFrameRef.current = requestAnimationFrame(scrollLoop);
-      };
-
-      animFrameRef.current = requestAnimationFrame(scrollLoop);
-    } else {
-      // In Live Mode: auto-advance section after estimated duration based on line count and scrollSpeed
-      const currentBlock = blocks[currentBlockIndex];
-      const lineCount = currentBlock ? paginateLines(currentBlock.lines)[livePage]?.length ?? currentBlock.lines.length : 4;
-      const durationMs =
-        scrollMode === 'px'
-          ? Math.max(3000, ((lineCount * 36) / scrollPx) * 1000)
-          : Math.max(1500, (scrollSecs * 1000) / Math.max(1, blocks.length));
-
-      const timer = setTimeout(() => {
-        if (livePage < livePagesOf(currentBlockIndex) - 1) {
-          setLivePage((p) => p + 1);
-        } else if (currentBlockIndex < blocks.length - 1) {
-          setCurrentBlockIndex((prev) => prev + 1);
-          setLivePage(0);
-        } else {
-          setIsScrolling(false);
-        }
-      }, durationMs);
-
-      return () => clearTimeout(timer);
-    }
-
-    return () => {
-      if (animFrameRef.current) {
-        cancelAnimationFrame(animFrameRef.current);
-        animFrameRef.current = null;
-      }
+      raf = requestAnimationFrame(loop);
     };
-  }, [isScrolling, isPausedByTouch, scrollMode, scrollPx, scrollSecs, displayMode, blocks, currentBlockIndex, livePage]);
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [isScrolling, isPausedByTouch, displayMode, scrollMode, scrollPx, scrollSecs]);
+
+  // Live: advance page by page, then section by section
+  useEffect(() => {
+    if (displayMode !== 'live' || !isScrolling || isPausedByTouch) return;
+    const timer = setTimeout(() => {
+      if (livePage < livePagesOf(currentBlockIndex) - 1) {
+        setLivePage((p) => p + 1);
+      } else if (currentBlockIndex < blocks.length - 1) {
+        setCurrentBlockIndex((prev) => prev + 1);
+        setLivePage(0);
+      } else {
+        setIsScrolling(false);
+      }
+    }, liveStepMs(currentBlockIndex, livePage));
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isScrolling, isPausedByTouch, scrollMode, scrollPx, scrollSecs, displayMode, blocks, currentBlockIndex, livePage, fontSize]);
 
   // Lead-in countdown
   const startWithCountdown = () => {
     if (isScrolling) {
       setIsScrolling(false);
       return;
+    }
+
+    // Pressing play at the very end starts over from the top
+    const lastIdx = blocks.length - 1;
+    if (displayMode === 'live') {
+      if (currentBlockIndex >= lastIdx && livePage >= livePagesOf(lastIdx) - 1 && lastIdx > 0) {
+        setCurrentBlockIndex(0);
+        setLivePage(0);
+      }
+    } else {
+      const c = scrollContainerRef.current;
+      if (c && c.scrollTop + c.clientHeight >= c.scrollHeight - 5 && c.scrollHeight > c.clientHeight) {
+        c.scrollTo({ top: 0, behavior: 'instant' });
+      }
     }
 
     setCountdown(3);
@@ -716,6 +725,25 @@ export function SongViewer({
   const DOCK = 'bg-[color:var(--dock)] border border-white/[0.16] backdrop-blur-2xl shadow-[0_12px_40px_rgba(0,0,0,0.45)]';
   const isLive = displayMode === 'live';
 
+  // Plain-words meaning of the speed setting for the current mode
+  const speedSummary = (() => {
+    if (isLive) {
+      let totalMs = 0;
+      blocks.forEach((_b, i) => livePagesLines(i).forEach((_n, p) => (totalMs += liveStepMs(i, p))));
+      const secs = Math.round(totalMs / 1000);
+      const pages = blocks.reduce((n, _b, i) => n + livePagesLines(i).length, 0);
+      return scrollMode === 'px'
+        ? `En Live cada página dura según sus líneas a esa velocidad. La canción completa ≈ ${formatTime(secs)}.`
+        : `La canción completa dura ${formatTime(scrollSecs)}: ≈ ${(scrollSecs / Math.max(1, pages)).toFixed(1)} s por página, repartido según sus líneas.`;
+    }
+    const c = scrollContainerRef.current;
+    const range = c ? Math.max(0, c.scrollHeight - c.clientHeight) : 0;
+    if (!range) return '';
+    return scrollMode === 'px'
+      ? `La letra completa se recorre en ≈ ${formatTime(Math.round(range / scrollPx))}.`
+      : `Equivale a ≈ ${(range / scrollSecs).toFixed(0)} px/s para recorrer toda la letra.`;
+  })();
+
   useEffect(() => {
     document.documentElement.classList.toggle('live-mode', isLive);
     return () => document.documentElement.classList.remove('live-mode');
@@ -734,6 +762,15 @@ export function SongViewer({
   return (
     <div className="relative flex flex-col h-full select-none overflow-hidden bg-[color:var(--page)] text-[color:var(--ink)]">
       {pinDialog}
+
+      {/* Live auto-advance: a thin line fills while the current page is on screen */}
+      {isLive && isScrolling && !isPausedByTouch && countdown === null && (
+        <div
+          key={`${currentBlockIndex}-${livePage}-${scrollMode}-${scrollPx}-${scrollSecs}-${fontSize}`}
+          className="pointer-events-none absolute top-0 left-0 right-0 h-[3px] z-30 origin-left bg-[oklch(0.82_0.14_75)] animate-[liveProgress_1s_linear_both]"
+          style={{ animationDuration: `${liveStepMs(currentBlockIndex, livePage)}ms` }}
+        />
+      )}
 
       <ConfirmDialog
         open={shareOpen}
@@ -1200,11 +1237,9 @@ export function SongViewer({
                       />
                       <span className="w-16 text-right text-xs font-bold tabular-nums">{formatTime(scrollSecs)}</span>
                     </div>
-                    <p className="text-[11px] opacity-60 -mt-1">
-                      La letra se recorre completa en ese tiempo (≈ {Math.round(scrollSecs / Math.max(1, blocks.length))} s por sección en Live).
-                    </p>
                   </>
                 )}
+                {speedSummary && <p className="text-[11px] opacity-60 -mt-1">{speedSummary}</p>}
               </>
             )}
           </div>

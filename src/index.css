@@ -71,6 +71,10 @@ html.live-mode, html.live-mode body { overscroll-behavior-y: none; }
 @keyframes pageFromTop {
   from { opacity: 0; transform: translateY(-22px); }
 }
+@keyframes liveProgress {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
 @keyframes fadeIn {
   from { opacity: 0; }
 }
