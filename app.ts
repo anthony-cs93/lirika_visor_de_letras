@@ -58,6 +58,16 @@ async function initDb() {
   await db.execute(
     "CREATE TABLE IF NOT EXISTS song_meta (user_id TEXT NOT NULL, song_id TEXT NOT NULL, is_favorite INTEGER NOT NULL DEFAULT 0, group_ids TEXT NOT NULL DEFAULT '[]', updated_at TEXT NOT NULL, PRIMARY KEY (user_id, song_id))"
   );
+  // Master songs: created by admins, shared with every account, editable only by admins (everyone else edits a personal copy)
+  await db.execute(
+    'CREATE TABLE IF NOT EXISTS master_songs (id TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at TEXT NOT NULL, deleted_at TEXT)'
+  );
+  // Each account's own order of its songs inside a group (used for master songs, whose content it does not own)
+  try {
+    await db.execute("ALTER TABLE song_meta ADD COLUMN group_order TEXT NOT NULL DEFAULT '{}'");
+  } catch {
+    // column already exists
+  }
   // Songs the admin picked to preload into the guest account, and which of them were already copied
   await db.execute('CREATE TABLE IF NOT EXISTS guest_seed (song_id TEXT PRIMARY KEY)');
   await db.execute('CREATE TABLE IF NOT EXISTS guest_seeded (song_id TEXT PRIMARY KEY)');
@@ -105,7 +115,7 @@ async function upsertSongs(songs: any[]) {
   );
 }
 
-type Me = { id: string; isGuest: boolean };
+type Me = { id: string; isGuest: boolean; role?: string };
 const me = (req: express.Request) => (req as any).user as Me;
 
 // Every account (guest included) has its own copy of the songs: edits, favorites and groups are private
@@ -128,17 +138,113 @@ async function upsertUserSongs(userId: string, songs: any[]) {
   );
 }
 
-// The Lirika catalog: what the admin accounts have in their own libraries (newest copy wins on duplicates)
+const LINK_KEYS = ['youtube', 'spotify', 'appleMusic', 'ytMusic', 'deezer', 'soundcloud'];
+
+// Reference links: only known platforms and only http(s) addresses are ever stored
+function cleanLinks(links: any): Record<string, string> | undefined {
+  if (!links || typeof links !== 'object') return undefined;
+  const out: Record<string, string> = {};
+  for (const k of LINK_KEYS) {
+    const v = typeof links[k] === 'string' ? links[k].trim() : '';
+    if (/^https?:\/\//i.test(v) && v.length <= 600) out[k] = v;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
+// A song the account owns: never flagged as master; it is a copy only when its id is the master's id
+function cleanPersonal(song: any) {
+  const { isMaster: _m, metaUpdatedAt: _t, unmaster: _u, ...rest } = song;
+  if (rest.masterId && String(rest.masterId) !== String(rest.id)) delete rest.masterId;
+  return { ...rest, links: cleanLinks(rest.links) };
+}
+
+// What a master is on the server: content only (favorites and groups are per account)
+function masterContent(song: any) {
+  const { isMaster: _m, masterId: _i, metaUpdatedAt: _t, isFavorite: _f, groupIds: _g, groupOrder: _o, ...rest } = song;
+  return { ...rest, links: cleanLinks(rest.links) };
+}
+
+async function getMasters(): Promise<any[]> {
+  const { rows } = await db.execute('SELECT data FROM master_songs');
+  return rows.map((r) => JSON.parse(r.data as string));
+}
+
+async function upsertMasters(songs: any[]) {
+  if (!songs.length) return;
+  await db.batch(
+    songs.map((s) => ({
+      sql: `INSERT INTO master_songs (id, data, updated_at, deleted_at) VALUES (?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at, deleted_at = excluded.deleted_at
+            WHERE excluded.updated_at >= master_songs.updated_at`,
+      args: [String(s.id), JSON.stringify(s), new Date(s.updatedAt || 0).toISOString(), s.deletedAt ?? null],
+    })),
+    'write'
+  );
+}
+
+// This account's own favorite / groups / order for the master songs
+async function getMasterMeta(userId: string) {
+  const { rows } = await db.execute({
+    sql: 'SELECT song_id, is_favorite, group_ids, group_order, updated_at FROM song_meta WHERE user_id = ?',
+    args: [userId],
+  });
+  const parse = <T,>(v: unknown, fallback: T): T => {
+    try {
+      return JSON.parse(String(v)) as T;
+    } catch {
+      return fallback;
+    }
+  };
+  return new Map(
+    rows.map((r) => [
+      String(r.song_id),
+      {
+        fav: Number(r.is_favorite) === 1,
+        groups: parse<string[]>(r.group_ids, []),
+        order: parse<Record<string, number>>(r.group_order, {}),
+        at: String(r.updated_at),
+      },
+    ])
+  );
+}
+
+async function saveMasterMeta(userId: string, songs: any[]) {
+  if (!songs.length) return;
+  await db.batch(
+    songs.map((s) => ({
+      sql: `INSERT INTO song_meta (user_id, song_id, is_favorite, group_ids, group_order, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, song_id) DO UPDATE SET is_favorite = excluded.is_favorite, group_ids = excluded.group_ids,
+              group_order = excluded.group_order, updated_at = excluded.updated_at WHERE excluded.updated_at >= song_meta.updated_at`,
+      args: [
+        userId,
+        String(s.id),
+        s.isFavorite ? 1 : 0,
+        JSON.stringify(Array.isArray(s.groupIds) ? s.groupIds : []),
+        JSON.stringify(s.groupOrder && typeof s.groupOrder === 'object' ? s.groupOrder : {}),
+        new Date(s.metaUpdatedAt || s.updatedAt || 0).toISOString(),
+      ],
+    })),
+    'write'
+  );
+}
+
+// The Lirika search lists the master songs
+async function getMasterCatalog(): Promise<any[]> {
+  return (await getMasters()).filter((s) => !s.deletedAt).map((s) => ({ ...s, isFavorite: false, groupIds: [] }));
+}
+
+// What the admin can preload into the guest account: the songs of the admin libraries and the master songs
 async function getCatalogSongs(): Promise<any[]> {
   const { rows } = await db.execute(
     "SELECT us.data FROM user_songs us JOIN users u ON u.id = us.user_id WHERE u.role = 'admin'"
   );
   const byId = new Map<string, any>();
-  for (const r of rows) {
-    const song = JSON.parse(r.data as string);
+  const add = (song: any) => {
     const cur = byId.get(String(song.id));
     if (!cur || new Date(song.updatedAt || 0) > new Date(cur.updatedAt || 0)) byId.set(String(song.id), song);
-  }
+  };
+  rows.forEach((r) => add(JSON.parse(r.data as string)));
+  (await getMasters()).forEach(add);
   return [...byId.values()].filter((s) => !s.deletedAt);
 }
 
@@ -165,11 +271,60 @@ async function seedGuest(userId: string) {
 
 async function getSongsFor(user: Me): Promise<any[]> {
   if (user.isGuest) await seedGuest(user.id);
-  return getUserSongs(user.id);
+  const own = await getUserSongs(user.id);
+  const masters = await getMasters();
+  const masterIds = new Set(masters.filter((m) => !m.deletedAt).map((m) => String(m.id)));
+  const ownLive = new Set(own.filter((x) => !x.deletedAt).map((x) => String(x.id)));
+  const meta = await getMasterMeta(user.id);
+
+  // Masters this account has not copied; the favorite/groups on them are this account's own.
+  // The guest account only has the masters it added itself.
+  const shown = masters
+    .filter((m) => !ownLive.has(String(m.id)) && (!user.isGuest || meta.has(String(m.id))))
+    .map((m) => {
+      const mm = meta.get(String(m.id));
+      return {
+        ...m,
+        isMaster: true,
+        isFavorite: mm?.fav ?? false,
+        groupIds: mm?.groups ?? [],
+        groupOrder: mm?.order ?? {},
+        metaUpdatedAt: mm?.at,
+      };
+    });
+  const shownLive = new Set(shown.filter((m) => !m.deletedAt).map((m) => String(m.id)));
+  // A deleted copy must not hide the master that is visible again; a live song with a master's id is that account's copy
+  const mine = own
+    .filter((x) => !(x.deletedAt && shownLive.has(String(x.id))))
+    .map((x) => (!x.deletedAt && masterIds.has(String(x.id)) ? { ...x, masterId: String(x.id) } : x));
+  return [...mine, ...shown];
 }
 
 async function saveSongsFor(user: Me, songs: any[]) {
-  await upsertUserSongs(user.id, songs);
+  const valid = songs.filter((x) => x && x.id);
+  const personal = valid.filter((x) => !x.isMaster).map(cleanPersonal);
+  await upsertUserSongs(user.id, personal);
+  // An admin turning a master back into a normal song takes it away from every account that has not copied it
+  if (user.role === 'admin') {
+    const ids = valid.filter((x) => !x.isMaster && x.unmaster === true).map((x) => String(x.id));
+    if (ids.length) {
+      const now = new Date().toISOString();
+      const live = (await getMasters()).filter((m) => ids.includes(String(m.id)) && !m.deletedAt);
+      await upsertMasters(live.map((m) => ({ ...m, deletedAt: now, updatedAt: now })));
+    }
+  }
+  const masterSongs = valid.filter((x) => x.isMaster);
+  if (!masterSongs.length) return;
+  if (user.role === 'admin') {
+    // Admins create and edit masters. A song that becomes a master leaves the admin's own library.
+    await upsertMasters(masterSongs.map(masterContent));
+    await db.batch(
+      masterSongs.map((x) => ({ sql: 'DELETE FROM user_songs WHERE user_id = ? AND id = ?', args: [user.id, String(x.id)] })),
+      'write'
+    );
+  }
+  // Everyone (admins included) keeps their own favorite / groups / order on a master; its content is never theirs to change
+  await saveMasterMeta(user.id, masterSongs);
 }
 
 // Before accounts had their own copies, every non-guest account saw the shared catalog with its own favorites/groups on top
@@ -280,7 +435,7 @@ app.post('/api/sync/push', async (req, res) => {
   }
 });
 
-// API: Lirika catalog search. Looks through the songs the admin accounts have uploaded, ignoring case and accents.
+// API: Lirika catalog search. Looks through the master songs, ignoring case and accents.
 // It is listed first in the lyrics search; web engines follow.
 const normalize = (v: string) => v.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
 
@@ -290,7 +445,7 @@ app.get('/api/songs/search', async (req, res) => {
   try {
     await dbReady;
     const words = q.split(/\s+/).filter(Boolean);
-    const results = (await getCatalogSongs())
+    const results = (await getMasterCatalog())
       .map((s) => {
         const head = normalize(`${s.title || ''} ${s.artist || ''}`);
         const haystack = `${head} ${normalize(s.lyrics || '')}`;
@@ -311,7 +466,7 @@ app.get('/api/songs/search', async (req, res) => {
         album: s.album || '',
         plainLyrics: s.lyrics || '',
         // The copy a user receives starts clean: no favorite, no groups
-        song: { ...s, isFavorite: false, groupIds: [] },
+        song: { ...s, isFavorite: false, groupIds: [], isMaster: true },
         source: 'lirika',
         needsFetch: false,
       }));

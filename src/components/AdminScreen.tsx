@@ -349,7 +349,7 @@ function GuestSeedSection() {
       <div className={`${CARD} p-4 space-y-3`}>
         <p className="text-xs opacity-55 leading-relaxed">
           Cada cuenta tiene sus propias canciones, favoritos y grupos. Aquí aparecen las canciones de las cuentas de
-          administrador; las marcadas se copian una sola vez a la cuenta del invitado y quitarlas después no borra las que ya recibió.
+          administrador y las maestras; las marcadas se copian una sola vez a la cuenta del invitado y quitarlas después no borra las que ya recibió.
         </p>
         <div className="h-10 rounded-full flex items-center gap-2.5 px-4 bg-white/[0.06] border border-white/15">
           <Search className="w-4 h-4 opacity-55 shrink-0" />

@@ -93,17 +93,33 @@ export function upsertSong(song: Song): Song {
   let updatedList: Song[];
   if (existingIdx >= 0) {
     result = { ...songs[existingIdx], ...song, updatedAt: now };
+    if (result.isMaster) result.metaUpdatedAt = now;
     delete result.deletedAt;
     updatedList = [...songs];
     updatedList[existingIdx] = result;
   } else {
     result = { ...song, createdAt: song.createdAt || now, updatedAt: now };
+    if (result.isMaster) result.metaUpdatedAt = now;
     updatedList = [result, ...songs];
   }
 
   writeAllSongs(updatedList);
   triggerCloudSync();
   return result;
+}
+
+// Personal copy of a master song: same id (so at most one per account), now editable. It replaces the master in
+// this account's library; deleting the copy brings the master back.
+export function makePersonalCopy(id: string): Song | null {
+  const songs = readAllSongs();
+  const target = songs.find(s => s.id === id && !s.deletedAt);
+  if (!target) return null;
+  if (!target.isMaster) return target; // already editable (own song or an existing copy)
+  const { isMaster: _m, metaUpdatedAt: _t, ...rest } = target;
+  const copy: Song = { ...rest, masterId: id, updatedAt: new Date().toISOString() };
+  writeAllSongs(songs.map(s => (s === target ? copy : s)));
+  triggerCloudSync();
+  return copy;
 }
 
 // Delete song (soft delete so the deletion reaches the cloud and other devices)
@@ -136,6 +152,7 @@ export function toggleFavoriteSong(id: string): boolean {
   if (!target) return false;
   target.isFavorite = !target.isFavorite;
   target.updatedAt = new Date().toISOString();
+  if (target.isMaster) target.metaUpdatedAt = target.updatedAt;
   writeAllSongs(songs);
   triggerCloudSync();
   return !!target.isFavorite;
@@ -154,6 +171,7 @@ export function toggleSongGroup(id: string, groupId: string): boolean {
     target.groupOrder = Object.keys(rest).length ? rest : undefined;
   }
   target.updatedAt = new Date().toISOString();
+  if (target.isMaster) target.metaUpdatedAt = target.updatedAt;
   writeAllSongs(songs);
   triggerCloudSync();
   return !inGroup;
@@ -169,6 +187,7 @@ export function setGroupOrder(groupId: string, orderedIds: string[]): void {
     if (!target || target.groupOrder?.[groupId] === pos) return;
     target.groupOrder = { ...target.groupOrder, [groupId]: pos };
     target.updatedAt = now;
+    if (target.isMaster) target.metaUpdatedAt = now;
     changed = true;
   });
   if (!changed) return;
@@ -253,6 +272,22 @@ export async function triggerCloudSync(): Promise<{ success: boolean; count?: nu
       data.songs.forEach((s: Song) => {
         const existing = mergedMap.get(s.id);
         if (!existing) {
+          mergedMap.set(s.id, s);
+        } else if (s.isMaster) {
+          // A master: its content always comes from the cloud. A tombstone here is a deleted copy (the master is
+          // visible again); a live personal song is a copy made in the meantime (keep it).
+          if (existing.deletedAt || existing.isMaster) {
+            const keepOwnMeta =
+              existing.isMaster && !existing.deletedAt && new Date(existing.metaUpdatedAt || 0) > new Date(s.metaUpdatedAt || 0);
+            mergedMap.set(
+              s.id,
+              keepOwnMeta
+                ? { ...s, isFavorite: existing.isFavorite, groupIds: existing.groupIds, groupOrder: existing.groupOrder, metaUpdatedAt: existing.metaUpdatedAt }
+                : s
+            );
+          }
+        } else if (existing.isMaster) {
+          // The cloud says this account already has its own copy
           mergedMap.set(s.id, s);
         } else {
           const localTime = new Date(existing.updatedAt || 0).getTime();

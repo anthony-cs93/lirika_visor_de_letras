@@ -39,6 +39,9 @@ import {
   compactSectionLabel,
 } from '../utils/lyricsParser';
 import { upsertSong } from '../utils/storage';
+import { Link2, ShieldCheck, Copy } from 'lucide-react';
+import { useAuth } from './AuthGate';
+import { LINK_PLATFORMS, checkLink, visibleLinks, LinkPlatform } from '../utils/links';
 import { ConfirmDialog } from './ConfirmDialog';
 import {
   getFontFamilyClass,
@@ -59,6 +62,19 @@ export function SongEditor({ song, initialBlock = 0, onBack, onSaved }: SongEdit
   const [title, setTitle] = useState(song?.title || '');
   const [artist, setArtist] = useState(song?.artist || '');
   const [songKey, setSongKey] = useState(song?.key || '');
+  // Reference links (one per platform) and, for admins, whether the song is a master song
+  const { user } = useAuth();
+  const canMaster = user.role === 'admin' && !user.isGuest;
+  const [linkValues, setLinkValues] = useState<Record<LinkPlatform, string>>(() => {
+    const init = {} as Record<LinkPlatform, string>;
+    LINK_PLATFORMS.forEach((p) => (init[p.key] = song?.links?.[p.key] ?? ''));
+    return init;
+  });
+  const [showLinks, setShowLinks] = useState(() => visibleLinks(song?.links).length > 0);
+  const [isMaster, setIsMaster] = useState(!!song?.isMaster);
+  const [confirmUnmaster, setConfirmUnmaster] = useState(false);
+  // Everything except the title starts folded away
+  const [showMeta, setShowMeta] = useState(false);
   // Dialogs: plain notice, and confirm-before-removing-a-section
   const [notice, setNotice] = useState<{ title: string; message: string } | null>(null);
   const [pendingRemove, setPendingRemove] = useState<number | null>(null);
@@ -180,6 +196,19 @@ export function SongEditor({ song, initialBlock = 0, onBack, onSaved }: SongEdit
     });
   };
 
+  // Duplicate a block right below the original (same name and text)
+  const handleDuplicateBlock = (index: number) => {
+    setBlocks((prev) => {
+      const copy = [...prev];
+      copy.splice(index + 1, 0, {
+        ...prev[index],
+        id: `block_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        lines: [...prev[index].lines],
+      });
+      return copy;
+    });
+  };
+
   // Remove a block
   const handleRemoveBlock = (index: number) => {
     if (blocks.length <= 1) {
@@ -209,6 +238,8 @@ export function SongEditor({ song, initialBlock = 0, onBack, onSaved }: SongEdit
     title,
     artist,
     songKey,
+    linkValues,
+    isMaster,
     lyrics: editorMode === 'raw' ? rawText.trim() : blocksToLyrics(blocks),
     fontSize,
     fontFamily,
@@ -248,6 +279,22 @@ export function SongEditor({ song, initialBlock = 0, onBack, onSaved }: SongEdit
       return;
     }
 
+    // Links: every filled field must be a valid address of its platform
+    const links: Partial<Record<LinkPlatform, string>> = {};
+    const linkErrors: string[] = [];
+    LINK_PLATFORMS.forEach((p) => {
+      const raw = linkValues[p.key].trim();
+      if (!raw) return;
+      const res = checkLink(p.key, raw);
+      if ('error' in res) linkErrors.push(res.error);
+      else links[p.key] = res.url;
+    });
+    if (linkErrors.length) {
+      setShowLinks(true);
+      setNotice({ title: 'Revisa los enlaces', message: linkErrors.join('. ') + '.' });
+      return;
+    }
+
     const currentLyrics = editorMode === 'raw' ? rawText.trim() : blocksToLyrics(blocks);
 
     const updated: Song = {
@@ -258,6 +305,9 @@ export function SongEditor({ song, initialBlock = 0, onBack, onSaved }: SongEdit
       lyrics: currentLyrics,
       tempo: song?.tempo,
       key: songKey.trim() || undefined,
+      links: Object.keys(links).length ? links : undefined,
+      isMaster: canMaster && isMaster,
+      unmaster: canMaster && !!song?.isMaster && !isMaster ? true : undefined,
       createdAt: song?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       isFavorite: song?.isFavorite || false,
@@ -283,6 +333,26 @@ export function SongEditor({ song, initialBlock = 0, onBack, onSaved }: SongEdit
 
   return (
     <div className="relative flex flex-col h-full bg-[color:var(--page)] text-[color:var(--ink)] overflow-hidden">
+      <ConfirmDialog
+        open={confirmUnmaster}
+        tone="danger"
+        icon={<ShieldCheck className="w-6 h-6" />}
+        title="¿Dejar de ser canción maestra?"
+        message="Se quitará de las cuentas que no hicieron su copia personal. Quienes ya tienen su copia la conservan. Tú la mantienes como canción tuya."
+        onClose={() => setConfirmUnmaster(false)}
+        actions={[
+          { label: 'Cancelar', onClick: () => setConfirmUnmaster(false) },
+          {
+            label: 'Dejar de compartir',
+            tone: 'danger',
+            onClick: () => {
+              setConfirmUnmaster(false);
+              setIsMaster(false);
+            },
+          },
+        ]}
+      />
+
       {/* Aurora background */}
       <div className="pointer-events-none absolute -left-28 -top-16 w-[340px] h-[340px] rounded-full opacity-40 blur-[80px] bg-[oklch(0.72_0.15_70)]" />
       <div className="pointer-events-none absolute -right-36 top-[300px] w-[360px] h-[360px] rounded-full opacity-40 blur-[90px] bg-[oklch(0.62_0.17_300)]" />
@@ -591,27 +661,40 @@ export function SongEditor({ song, initialBlock = 0, onBack, onSaved }: SongEdit
       <div ref={listRef} className="relative z-10 flex-1 overflow-y-auto p-4 max-w-3xl mx-auto w-full space-y-4">
         {/* Title & Metadata Card */}
         <div className="bg-white/[0.06] backdrop-blur-xl border border-white/10 rounded-3xl p-4 space-y-3">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-zinc-400 mb-1">Título de la Canción *</label>
+          <div>
+            <label className="block text-xs font-semibold text-zinc-400 mb-1">Título de la Canción *</label>
+            <div className="flex items-center gap-2">
               <input
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="Nombre de la canción"
-                className="w-full px-3 py-2 bg-black/25 border border-white/10 rounded-2xl text-sm font-bold text-white focus:outline-none focus:border-amber-400"
+                className="flex-1 min-w-0 px-3 py-2 bg-black/25 border border-white/10 rounded-2xl text-sm font-bold text-white focus:outline-none focus:border-amber-400"
               />
+              <button
+                type="button"
+                onClick={() => setShowMeta((v) => !v)}
+                aria-expanded={showMeta}
+                aria-label={showMeta ? 'Ocultar detalles de la canción' : 'Mostrar detalles de la canción'}
+                title={showMeta ? 'Ocultar detalles' : 'Artista, tonalidad, enlaces…'}
+                className="w-10 h-10 shrink-0 rounded-2xl flex items-center justify-center bg-black/25 border border-white/10 text-zinc-300 hover:bg-white/[0.08]"
+              >
+                <ChevronDown className={`w-4 h-4 transition-transform ${showMeta ? 'rotate-180' : ''}`} />
+              </button>
             </div>
-            <div>
-              <label className="block text-xs font-semibold text-zinc-400 mb-1">Artista o Banda</label>
-              <input
-                type="text"
-                value={artist}
-                onChange={(e) => setArtist(e.target.value)}
-                placeholder="Nombre del artista"
-                className="w-full px-3 py-2 bg-black/25 border border-white/10 rounded-2xl text-sm text-zinc-200 focus:outline-none focus:border-amber-400"
-              />
-            </div>
+          </div>
+
+          {showMeta && (
+            <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-semibold text-zinc-400 mb-1">Artista o Banda</label>
+            <input
+              type="text"
+              value={artist}
+              onChange={(e) => setArtist(e.target.value)}
+              placeholder="Nombre del artista"
+              className="w-full px-3 py-2 bg-black/25 border border-white/10 rounded-2xl text-sm text-zinc-200 focus:outline-none focus:border-amber-400"
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-3 text-xs">
@@ -637,6 +720,76 @@ export function SongEditor({ song, initialBlock = 0, onBack, onSaved }: SongEdit
               </button>
             </div>
           </div>
+
+          {/* Reference links: one per platform */}
+          <div className="text-xs">
+            <button
+              type="button"
+              onClick={() => setShowLinks((v) => !v)}
+              className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-2xl bg-black/25 border border-white/10 text-zinc-300 hover:bg-white/[0.06]"
+            >
+              <span className="flex items-center gap-2 font-semibold">
+                <Link2 className="w-3.5 h-3.5 text-amber-400" />
+                Enlaces de referencia
+                {LINK_PLATFORMS.some((p) => linkValues[p.key].trim()) && (
+                  <span className="px-1.5 rounded-full bg-amber-400/20 text-amber-300 text-[10px] font-bold">
+                    {LINK_PLATFORMS.filter((p) => linkValues[p.key].trim()).length}
+                  </span>
+                )}
+              </span>
+              <span className="opacity-60">{showLinks ? 'Ocultar' : 'Añadir'}</span>
+            </button>
+            {showLinks && (
+              <div className="mt-2 space-y-1.5">
+                {LINK_PLATFORMS.map((p) => (
+                  <label key={p.key} className="flex items-center gap-2">
+                    <span className="w-[88px] shrink-0 flex items-center gap-1.5 text-zinc-400">
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ background: p.color }} />
+                      {p.label}
+                    </span>
+                    <input
+                      type="url"
+                      inputMode="url"
+                      autoCapitalize="none"
+                      spellCheck={false}
+                      value={linkValues[p.key]}
+                      onChange={(e) => setLinkValues((prev) => ({ ...prev, [p.key]: e.target.value }))}
+                      placeholder="https://…"
+                      className="flex-1 min-w-0 px-2.5 py-1.5 bg-black/25 border border-white/10 rounded-2xl text-zinc-200 placeholder:opacity-40 focus:outline-none focus:border-amber-400"
+                    />
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Admins: master songs are shared with every account; only admins edit them */}
+          {canMaster && (
+            <button
+              type="button"
+              onClick={() => (isMaster && song?.isMaster ? setConfirmUnmaster(true) : setIsMaster((v) => !v))}
+              className="w-full flex items-center justify-between gap-3 px-3 py-2.5 rounded-2xl bg-black/25 border border-white/10 text-left"
+            >
+              <span className="flex items-start gap-2 min-w-0">
+                <ShieldCheck className="w-4 h-4 mt-0.5 shrink-0 text-amber-400" />
+                <span className="min-w-0">
+                  <span className="block text-xs font-bold text-zinc-200">Canción maestra</span>
+                  <span className="block text-[11px] text-zinc-500 leading-snug">
+                    {song?.isMaster
+                      ? 'La reciben todas las cuentas; solo los administradores la editan. Si la desactivas, deja de compartirse.'
+                      : 'Se compartirá con todas las cuentas. Los demás usuarios no la editan: crean una copia personal (una por cuenta).'}
+                  </span>
+                </span>
+              </span>
+              <span
+                className={`relative w-[42px] h-6 shrink-0 rounded-full transition-all ${isMaster ? 'bg-[oklch(0.82_0.14_75)]' : 'bg-white/[0.18]'}`}
+              >
+                <span className={`absolute top-[3px] w-[18px] h-[18px] rounded-full bg-white shadow transition-all ${isMaster ? 'left-[21px]' : 'left-[3px]'}`} />
+              </span>
+            </button>
+          )}
+            </div>
+          )}
         </div>
 
         {/* MODE 1: Interactive Stanza Blocks UX */}
@@ -745,6 +898,15 @@ export function SongEditor({ song, initialBlock = 0, onBack, onSaved }: SongEdit
                         title="Mover sección abajo"
                       >
                         <ChevronDown className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDuplicateBlock(idx)}
+                        className="p-1 text-zinc-400 hover:text-zinc-200 rounded hover:bg-white/10"
+                        title="Duplicar esta sección"
+                        aria-label="Duplicar esta sección"
+                      >
+                        <Copy className="w-4 h-4" />
                       </button>
                       <button
                         type="button"

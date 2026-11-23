@@ -48,6 +48,8 @@ import {
 } from '../utils/storage';
 import { apiFetch } from '../utils/auth';
 import { LogoHorizontal } from './Logo';
+import { Link2 } from 'lucide-react';
+import { visibleLinks } from '../utils/links';
 
 // Where the user was in the list (tab and scroll): the list unmounts while a song is open,
 // so this lets "back" return to the same group instead of the whole library.
@@ -76,6 +78,7 @@ export function SongList({
   const [songs, setSongs] = useState<Song[]>(getLocalSongs());
   const [searchQuery, setSearchQuery] = useState('');
   const [pendingDelete, setPendingDelete] = useState<Song | null>(null);
+  const [linksOpenId, setLinksOpenId] = useState<string | null>(null); // song whose link buttons are showing
   const { guard, pinDialog } = usePinGuard();
   const { user } = useAuth();
   // Message floating above the heart that was just pressed (n makes each press a fresh animation)
@@ -505,7 +508,13 @@ export function SongList({
         tone="danger"
         icon={<Trash2 className="w-6 h-6" />}
         title={pendingDelete ? `¿Eliminar "${pendingDelete.title}"?` : ''}
-        message="Se quitará de tu biblioteca y la eliminación se sincronizará con la nube."
+        message={
+          pendingDelete?.isMaster
+            ? 'Es una canción maestra: se eliminará para todas las cuentas. Quienes hicieron su copia personal la conservan.'
+            : pendingDelete?.masterId
+              ? 'Se eliminará tu copia personal y volverá a verse la canción maestra original.'
+              : 'Se quitará de tu biblioteca y la eliminación se sincronizará con la nube.'
+        }
         onClose={() => setPendingDelete(null)}
         actions={[
           { label: 'Cancelar', onClick: () => setPendingDelete(null) },
@@ -796,6 +805,8 @@ export function SongList({
               }
               const sectionCount = parseLyricsToBlocks(song.lyrics).length;
               const meta = song.source === 'upload' ? 'Subida' : '';
+              const songLinks = visibleLinks(song.links);
+              const canDelete = !song.isMaster || user.role === 'admin';
 
               return (
                 <div
@@ -842,6 +853,16 @@ export function SongList({
                       >
                         {sectionCount} {sectionCount === 1 ? 'sección' : 'secciones'}
                       </span>
+                      {song.isMaster && (
+                        <span className="shrink-0 px-2 py-px rounded-full text-[10px] font-semibold master-badge" title="Canción maestra: la comparten todas las cuentas">
+                          Maestra
+                        </span>
+                      )}
+                      {!song.isMaster && song.masterId && (
+                        <span className="shrink-0 px-2 py-px rounded-full text-[10px] font-semibold copy-badge" title="Tu copia personal de una canción maestra">
+                          Mi copia
+                        </span>
+                      )}
                       {song.key && (
                         <span
                           className="shrink-0 px-2 py-px rounded-full text-[10px] font-semibold key-badge"
@@ -852,8 +873,41 @@ export function SongList({
                       )}
                       {meta && <span className="text-[11px] opacity-50 truncate">{meta}</span>}
                     </div>
+                    {songLinks.length > 0 && linksOpenId === song.id && (
+                      <div className="flex flex-wrap gap-1 mt-1.5">
+                        {songLinks.map((l) => (
+                          <a
+                            key={l.key}
+                            href={l.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="px-2 h-6 inline-flex items-center rounded-full text-[10px] font-bold border active:scale-95 transition-transform"
+                            style={{ color: l.color, background: `${l.color}1f`, borderColor: `${l.color}55` }}
+                            title={`Abrir en ${l.label}`}
+                          >
+                            {l.short}
+                          </a>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center shrink-0">
+                    {songLinks.length > 0 && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setLinksOpenId(linksOpenId === song.id ? null : song.id);
+                        }}
+                        className={`w-7 h-8 rounded-full flex items-center justify-center transition-colors ${
+                          linksOpenId === song.id ? 'text-[oklch(0.82_0.14_75)]' : 'text-[color:var(--ink)]/40 hover:text-[color:var(--ink)]'
+                        }`}
+                        title="Enlaces de referencia"
+                        aria-expanded={linksOpenId === song.id}
+                      >
+                        <Link2 className="w-[15px] h-[15px]" />
+                      </button>
+                    )}
                     <button
                       onClick={(e) => handleToggleFav(e, song.id)}
                       className={`relative w-7 h-8 rounded-full flex items-center justify-center transition-colors ${
@@ -878,13 +932,15 @@ export function SongList({
                     >
                       <FolderPlus className="w-[14px] h-[14px]" />
                     </button>
-                    <button
-                      onClick={(e) => handleDeleteSong(e, song.id)}
-                      className="w-7 h-8 rounded-full flex items-center justify-center text-[color:var(--ink)]/30 hover:text-[oklch(0.75_0.17_10)] transition-colors"
-                      title="Eliminar canción"
-                    >
-                      <Trash2 className="w-[14px] h-[14px]" />
-                    </button>
+                    {canDelete && (
+                      <button
+                        onClick={(e) => handleDeleteSong(e, song.id)}
+                        className="w-7 h-8 rounded-full flex items-center justify-center text-[color:var(--ink)]/30 hover:text-[oklch(0.75_0.17_10)] transition-colors"
+                        title="Eliminar canción"
+                      >
+                        <Trash2 className="w-[14px] h-[14px]" />
+                      </button>
+                    )}
                   </div>
                 </div>
               );

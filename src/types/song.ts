@@ -1,3 +1,5 @@
+import type { SongLinks } from '../utils/links';
+
 export type ThemeMode = 'dark' | 'light' | 'stage';
 export type LyricsDisplayMode = 'standard' | 'live';
 export type FontFamily = 'sans' | 'serif' | 'mono' | 'condensed';
@@ -50,6 +52,13 @@ export interface Song {
   isFavorite?: boolean;
   groupIds?: string[]; // user-created folders this song belongs to
   groupOrder?: Record<string, number>; // position of the song inside each group (manual order)
+  links?: SongLinks; // reference links, one per music platform
+  // Master songs are created by admins and shared with every account. Only admins edit them; everyone else
+  // edits a personal copy (same id, at most one per account), which then replaces the master in their library.
+  isMaster?: boolean;
+  masterId?: string; // set on a personal copy of a master song
+  unmaster?: boolean; // admin turned a master back into a normal song (asks the server to withdraw it)
+  metaUpdatedAt?: string; // masters only: when this account last changed its own favorite/groups/order
   createdAt: string;
   updatedAt: string;
   deletedAt?: string; // set when deleted; kept as a tombstone so the deletion syncs

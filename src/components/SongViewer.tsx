@@ -49,7 +49,9 @@ import {
   getTextAlignClass,
   getTextTransformClass,
 } from '../utils/theme';
-import { toggleFavoriteSong } from '../utils/storage';
+import { toggleFavoriteSong, makePersonalCopy } from '../utils/storage';
+import { Copy } from 'lucide-react';
+import { useAuth } from './AuthGate';
 import { shareSong, copySongText, hasSystemShare } from '../utils/share';
 import { ConfirmDialog } from './ConfirmDialog';
 import { FavBurst } from './FavBurst';
@@ -100,6 +102,14 @@ export function SongViewer({
   onEdit,
 }: SongViewerProps) {
   const { guard, pinDialog } = usePinGuard();
+  const { user } = useAuth();
+  // Master songs are only edited by admins; everyone else edits a personal copy
+  const [copyPrompt, setCopyPrompt] = useState(false);
+  const handleEditPress = () =>
+    guard(() => {
+      if (song.isMaster && user.role !== 'admin') setCopyPrompt(true);
+      else onEdit(song, currentBlockIndex);
+    });
   const [shareOpen, setShareOpen] = useState(false);
   const [shareToast, setShareToast] = useState<string | null>(null);
   const showShareToast = (msg: string) => {
@@ -763,6 +773,26 @@ export function SongViewer({
     <div className="relative flex flex-col h-full select-none overflow-hidden bg-[color:var(--page)] text-[color:var(--ink)]">
       {pinDialog}
 
+      <ConfirmDialog
+        open={copyPrompt}
+        icon={<Copy className="w-6 h-6" />}
+        title="Esta canción es maestra"
+        message="No se edita directamente. Se creará tu copia personal (solo una por canción) y podrás editarla. Si luego la eliminas, vuelve a verse la maestra."
+        onClose={() => setCopyPrompt(false)}
+        actions={[
+          { label: 'Cancelar', onClick: () => setCopyPrompt(false) },
+          {
+            label: 'Crear mi copia',
+            tone: 'primary',
+            onClick: () => {
+              setCopyPrompt(false);
+              const copy = makePersonalCopy(song.id);
+              if (copy) onEdit(copy, currentBlockIndex);
+            },
+          },
+        ]}
+      />
+
       {/* Live auto-advance: a thin line fills while the current page is on screen */}
       {isLive && isScrolling && !isPausedByTouch && countdown === null && (
         <div
@@ -902,7 +932,7 @@ export function SongViewer({
                     {compactSectionLabel(sec.label)}
                   </button>
                   {count > 1 && (
-                    <span className="pointer-events-none absolute -top-2 -right-1.5 min-w-[18px] h-[16px] px-1 rounded-full repeat-badge border text-[9px] font-extrabold leading-none flex items-center justify-center">
+                    <span className="pointer-events-none absolute -top-2 -right-1.5 min-w-[21px] h-[18px] px-1.5 rounded-full repeat-badge border text-[10px] font-extrabold leading-none flex items-center justify-center">
                       x{count}
                     </span>
                   )}
@@ -944,7 +974,7 @@ export function SongViewer({
                 highlightChorus && currentBlock.sectionType === 'chorus' ? `${CHORUS_HIGHLIGHT_LIVE} -mx-3 px-3 py-3` : ''
               }`}
             >
-              <div className="flex items-center justify-between mb-4 pr-1 text-[11px] font-extrabold tracking-[0.14em] uppercase text-[oklch(0.85_0.13_75)]">
+              <div className="flex items-center justify-between mb-4 pr-1 text-[15px] font-extrabold tracking-[0.12em] uppercase text-[oklch(0.85_0.13_75)]">
                 <span className="flex items-center gap-2.5">
                   {currentBlock.sectionLabel}
                   {livePageCount > 1 && (
@@ -1026,7 +1056,7 @@ export function SongViewer({
                   }}
                   className={isChorus ? `${CHORUS_HIGHLIGHT} -mx-3 px-3 py-3` : ''}
                 >
-                  <div className="text-[11px] font-extrabold tracking-[0.14em] uppercase mb-2 text-[oklch(0.85_0.13_75)]">
+                  <div className="text-[15px] font-extrabold tracking-[0.12em] uppercase mb-2 text-[oklch(0.85_0.13_75)]">
                     {block.sectionLabel}                  </div>
                   {block.lines.map((line, lIdx) => (
                     <div key={lIdx} className={`leading-[1.45] tracking-tight ${isChorus ? 'font-bold' : 'font-semibold'} ${line ? '' : 'h-3'}`}>
@@ -1297,7 +1327,7 @@ export function SongViewer({
               <Gauge className="w-[18px] h-[18px]" />
             </button>
             <button
-              onClick={() => guard(() => onEdit(song, currentBlockIndex))}
+              onClick={handleEditPress}
               className={`w-8 h-8 rounded-full bg-white/[0.09] flex items-center justify-center active:scale-90 transition-transform`}
               title="Editar letra"
             >
