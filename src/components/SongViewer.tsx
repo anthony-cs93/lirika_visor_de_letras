@@ -60,6 +60,24 @@ type Panel = 'aa' | 'align' | 'speed' | null;
 
 const formatTime = (secs: number) => `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
 
+// What the user last chose in the viewer (one style per display mode + the chorus highlight). It is kept on this
+// device and applies to every song; a song's own saved style (from the editor) is only the starting point
+// until the user changes something here.
+const VIEW_STYLES_KEY = 'lirika_view_styles';
+interface SavedViewStyles {
+  standard?: Partial<ViewStyle>;
+  live?: Partial<ViewStyle>;
+  highlightChorus?: boolean;
+}
+const loadSavedStyles = (): SavedViewStyles => {
+  try {
+    const v = JSON.parse(localStorage.getItem(VIEW_STYLES_KEY) || 'null');
+    return v && typeof v === 'object' ? v : {};
+  } catch {
+    return {};
+  }
+};
+
 interface ViewStyle {
   fontSize: number;
   fontFamily: FontFamily;
@@ -95,27 +113,36 @@ export function SongViewer({
 
   // Text formatting and styling. Each display mode (Full / Live) keeps its own copy, so changing
   // size, font, style or alignment in one mode never affects the other. Both start from the song's saved style.
+  const savedStyles = useRef(loadSavedStyles());
+  const touchedModes = useRef(new Set<LyricsDisplayMode>());
   const [styles, setStyles] = useState<Record<LyricsDisplayMode, ViewStyle>>(() => {
-    const initial = (): ViewStyle => ({
-      fontSize: song.customStyle?.fontSize || 20,
-      fontFamily:
-        song.customStyle?.fontFamily && song.customStyle.fontFamily !== 'condensed' ? song.customStyle.fontFamily : 'sans',
-      lineHeight: song.customStyle?.lineHeight || 'normal',
-      align: song.customStyle?.align || 'left',
-      isBold: song.customStyle?.isBold || false,
-      isItalic: song.customStyle?.isItalic || false,
-      textTransform: song.customStyle?.textTransform || 'none',
-    });
-    return { standard: initial(), live: initial() };
+    const initial = (mode: LyricsDisplayMode): ViewStyle => {
+      const base: ViewStyle = {
+        fontSize: song.customStyle?.fontSize || 20,
+        fontFamily:
+          song.customStyle?.fontFamily && song.customStyle.fontFamily !== 'condensed' ? song.customStyle.fontFamily : 'sans',
+        lineHeight: song.customStyle?.lineHeight || 'normal',
+        align: song.customStyle?.align || 'left',
+        isBold: song.customStyle?.isBold || false,
+        isItalic: song.customStyle?.isItalic || false,
+        textTransform: song.customStyle?.textTransform || 'none',
+      };
+      const saved = { ...savedStyles.current[mode] };
+      if (saved.fontFamily === ('condensed' as FontFamily)) delete saved.fontFamily;
+      return { ...base, ...saved };
+    };
+    return { standard: initial('standard'), live: initial('live') };
   });
   const { fontSize, fontFamily, lineHeight, align, isBold, isItalic, textTransform } = styles[displayMode];
   // Setters write to the style of the mode currently on screen
-  const setStyleField = <K extends keyof ViewStyle>(key: K, value: ViewStyle[K] | ((current: ViewStyle[K]) => ViewStyle[K])) =>
+  const setStyleField = <K extends keyof ViewStyle>(key: K, value: ViewStyle[K] | ((current: ViewStyle[K]) => ViewStyle[K])) => {
+    touchedModes.current.add(displayMode);
     setStyles((prev) => {
       const current = prev[displayMode];
       const next = typeof value === 'function' ? (value as (c: ViewStyle[K]) => ViewStyle[K])(current[key]) : value;
       return { ...prev, [displayMode]: { ...current, [key]: next } };
     });
+  };
   const setFontSize = (v: number | ((c: number) => number)) => setStyleField('fontSize', v);
   const setFontFamily = (v: FontFamily) => setStyleField('fontFamily', v);
   const setLineHeight = (v: LineHeight) => setStyleField('lineHeight', v);
@@ -123,7 +150,24 @@ export function SongViewer({
   const setIsBold = (v: boolean) => setStyleField('isBold', v);
   const setIsItalic = (v: boolean) => setStyleField('isItalic', v);
   const setTextTransform = (v: TextTransform | ((c: TextTransform) => TextTransform)) => setStyleField('textTransform', v);
-  const [highlightChorus, setHighlightChorus] = useState<boolean>(song.customStyle?.highlightChorus ?? true);
+  const [highlightChorus, setHighlightChorus] = useState<boolean>(
+    savedStyles.current.highlightChorus ?? song.customStyle?.highlightChorus ?? true
+  );
+  const chorusTouched = useRef(false);
+
+  // Remember what the user changed (only the modes they touched), so the next song opens the same way
+  useEffect(() => {
+    if (!touchedModes.current.size && !chorusTouched.current) return;
+    const next: SavedViewStyles = { ...savedStyles.current };
+    touchedModes.current.forEach((mode) => (next[mode] = styles[mode]));
+    if (chorusTouched.current) next.highlightChorus = highlightChorus;
+    savedStyles.current = next;
+    try {
+      localStorage.setItem(VIEW_STYLES_KEY, JSON.stringify(next));
+    } catch {
+      /* storage unavailable */
+    }
+  }, [styles, highlightChorus]);
 
   // Auto-scroll / Teleprompter State
   const [isScrolling, setIsScrolling] = useState<boolean>(false);
@@ -1073,7 +1117,10 @@ export function SongViewer({
                   </div>
                 </div>
                 <div
-                  onClick={() => setHighlightChorus(!highlightChorus)}
+                  onClick={() => {
+                    chorusTouched.current = true;
+                    setHighlightChorus(!highlightChorus);
+                  }}
                   className="flex items-center justify-between cursor-pointer"
                 >
                   <span className="text-[13px] font-extrabold">Resaltar coro</span>
