@@ -139,7 +139,7 @@ export function LyricsSearchModal({ isOpen, onClose, onSongCreated }: LyricsSear
     setBlockedUrl(null);
     if (item.source === 'lirika' && item.song) {
       // Lirika catalog: the user gets their own copy. If they already have it, open theirs (never overwrite their edits)
-      onSongCreated(getSongById(item.song.id) ?? upsertSong({ ...item.song, isFavorite: false, groupIds: [], source: item.song.source ?? 'cloud' }));
+      onSongCreated(getSongById(item.song.id) ?? upsertSong({ ...item.song, isFavorite: false, groupIds: [], source: item.song.source ?? 'cloud', ...(item.song.isMaster ? { userAdded: true } : {}) }));
       clearState();
       return;
     }

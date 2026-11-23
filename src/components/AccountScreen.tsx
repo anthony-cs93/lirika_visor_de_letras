@@ -17,7 +17,7 @@ import { ConfirmDialog } from './ConfirmDialog';
 import { useAuth } from './AuthGate';
 import { authApi } from '../utils/auth';
 import { ScreenShell, SectionTitle, Row, RowGroup, Avatar, CARD, FIELD, PRIMARY_BTN, SOFT_BTN } from './ScreenShell';
-import { getLocalSongs, resetToInitialSongs, triggerCloudSync, subscribeToSyncStatus } from '../utils/storage';
+import { getLocalSongs, restoreStarterSongs, triggerCloudSync, subscribeToSyncStatus } from '../utils/storage';
 
 interface AccountScreenProps {
   onBack: () => void;
@@ -90,21 +90,21 @@ export function AccountScreen({ onBack, onRefresh }: AccountScreenProps) {
     <ScreenShell title="Cuenta" subtitle="Tu perfil, la nube y tus copias" onBack={onBack} notice={notification}>
       <ConfirmDialog
         open={confirmReset}
-        tone="danger"
         icon={<RotateCcw className="w-6 h-6" />}
         title="¿Restablecer el cancionero?"
-        message="Tu cancionero se reemplazará por las canciones iniciales. Descarga una copia de seguridad antes si quieres conservar tus letras."
+        message="Volverán las canciones iniciales que quitaste de tu cuenta. No se toca nada de lo que creaste o editaste."
         onClose={() => setConfirmReset(false)}
         actions={[
           { label: 'Cancelar', onClick: () => setConfirmReset(false) },
           {
             label: 'Restablecer',
-            tone: 'danger',
-            onClick: () => {
+            tone: 'primary',
+            onClick: async () => {
               setConfirmReset(false);
-              resetToInitialSongs();
+              const res = await restoreStarterSongs();
               onRefresh();
-              showNotif('Cancionero restablecido.');
+              if (!res.success) showNotif('No se pudo restablecer. Revisa tu conexión.');
+              else showNotif(res.restored ? `Canciones iniciales restauradas (${res.restored}).` : 'Ya tienes todas las canciones iniciales.');
             },
           },
         ]}
@@ -217,14 +217,14 @@ export function AccountScreen({ onBack, onRefresh }: AccountScreenProps) {
             hint="Copia de seguridad en JSON"
             onClick={handleExportJSON}
           />
-          <Row
-            icon={<Trash2 className="w-4 h-4" />}
-            tone="danger"
-            label="Restablecer cancionero"
-            hint="Próximamente"
-            disabled
-            onClick={() => setConfirmReset(true)}
-          />
+          {!isAdmin && (
+            <Row
+              icon={<RotateCcw className="w-4 h-4" />}
+              label="Restablecer cancionero"
+              hint="Recupera las canciones iniciales que quitaste"
+              onClick={() => setConfirmReset(true)}
+            />
+          )}
         </RowGroup>
       </section>
     </ScreenShell>

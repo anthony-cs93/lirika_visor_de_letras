@@ -519,7 +519,9 @@ export function SongList({
         title={pendingDelete ? `¿Eliminar "${pendingDelete.title}"?` : ''}
         message={
           pendingDelete?.isMaster
-            ? 'Es una canción maestra: se eliminará para todas las cuentas. Quienes hicieron su copia personal la conservan.'
+            ? user.role === 'admin'
+              ? 'Es una canción maestra: se eliminará para todas las cuentas. Quienes hicieron su copia personal la conservan.'
+              : 'Se quitará solo de tu cuenta, no de las demás. Puedes recuperarla desde Cuenta → Restablecer cancionero.'
             : pendingDelete?.masterId
               ? 'Se eliminará tu copia personal y volverá a verse la canción maestra original.'
               : 'Se quitará de tu biblioteca y la eliminación se sincronizará con la nube.'
@@ -846,7 +848,7 @@ export function SongList({
               const sectionCount = parseLyricsToBlocks(song.lyrics).length;
               const meta = song.source === 'upload' ? 'Subida' : '';
               const songLinks = visibleLinks(song.links);
-              const canDelete = !song.isMaster || user.role === 'admin';
+              const canDelete = true; // a master is removed from this account only, unless an admin deletes it
 
               return (
                 <div

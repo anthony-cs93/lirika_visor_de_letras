@@ -1,5 +1,4 @@
 import { Song, CloudSyncStatus } from '../types/song';
-import { INITIAL_SONGS } from '../data/defaultSongs';
 import { stripChords } from './lyricsParser';
 import { apiFetch } from './auth';
 
@@ -135,16 +134,20 @@ export function deleteSong(id: string): boolean {
   return true;
 }
 
-// Replace the catalog with the initial songs, deleting everything else (syncs to the cloud)
-export function resetToInitialSongs(): void {
-  const now = new Date().toISOString();
-  const initialIds = new Set(INITIAL_SONGS.map(s => s.id));
-  const removed = readAllSongs()
-    .filter(s => !initialIds.has(s.id))
-    .map(s => ({ ...s, deletedAt: s.deletedAt || now, updatedAt: now }));
-  const restored = INITIAL_SONGS.map(s => ({ ...s, updatedAt: now, deletedAt: undefined }));
-  writeAllSongs([...restored, ...removed]);
-  triggerCloudSync();
+// "Restablecer cancionero": brings back the starter songs this account removed (masters and copies).
+// Nothing the account created or edited is touched.
+export async function restoreStarterSongs(): Promise<{ success: boolean; restored?: number }> {
+  try {
+    const res = await apiFetch('/api/songs/restore-starter', { method: 'POST' });
+    if (!res.ok) return { success: false };
+    const data = await res.json();
+    // Forget the local "removed" masters first, or the next sync would hide them again
+    writeAllSongs(readAllSongs().filter(s => !(s.isMaster && s.deletedAt)));
+    await triggerCloudSync();
+    return { success: true, restored: Number(data.restored || 0) };
+  } catch {
+    return { success: false };
+  }
 }
 
 // Toggle Favorite
@@ -302,6 +305,15 @@ export async function triggerCloudSync(): Promise<{ success: boolean; count?: nu
             mergedMap.set(s.id, s);
           }
         }
+      });
+
+      // Masters this account pushed but the cloud no longer sends (e.g. the admin changed the starter set) leave the library,
+      // unless they were touched while the request was in flight
+      const returnedIds = new Set<string>(data.songs.map((s: Song) => s.id));
+      localSongs.forEach(m => {
+        if (!m.isMaster || m.deletedAt || returnedIds.has(m.id)) return;
+        const cur = mergedMap.get(m.id);
+        if (cur && cur.isMaster && !cur.deletedAt && cur.updatedAt === m.updatedAt) mergedMap.delete(m.id);
       });
 
       const finalSongs = Array.from(mergedMap.values());

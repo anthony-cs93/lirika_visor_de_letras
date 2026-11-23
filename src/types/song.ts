@@ -57,6 +57,7 @@ export interface Song {
   // edits a personal copy (same id, at most one per account), which then replaces the master in their library.
   isMaster?: boolean;
   masterId?: string; // set on a personal copy of a master song
+  userAdded?: boolean; // masters only: this account added it on purpose (Lirika search); the server keeps it for the account
   unmaster?: boolean; // admin turned a master back into a normal song (asks the server to withdraw it)
   metaUpdatedAt?: string; // masters only: when this account last changed its own favorite/groups/order
   createdAt: string;

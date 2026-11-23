@@ -344,12 +344,13 @@ function GuestSeedSection() {
           </span>
         }
       >
-        Canciones del invitado
+        Canciones iniciales
       </SectionTitle>
       <div className={`${CARD} p-4 space-y-3`}>
         <p className="text-xs opacity-55 leading-relaxed">
-          Cada cuenta tiene sus propias canciones, favoritos y grupos. Aquí aparecen las canciones de las cuentas de
-          administrador y las maestras; las marcadas se copian una sola vez a la cuenta del invitado y quitarlas después no borra las que ya recibió.
+          Son las canciones con las que arrancan el invitado y toda cuenta nueva. Las maestras marcadas llegan como
+          maestras (cada cuenta puede quitarlas de la suya y recuperarlas desde Cuenta → Restablecer cancionero); las
+          demás se copian una sola vez a cada cuenta. Las demás maestras solo se obtienen al añadirlas desde el buscador.
         </p>
         <div className="h-10 rounded-full flex items-center gap-2.5 px-4 bg-white/[0.06] border border-white/15">
           <Search className="w-4 h-4 opacity-55 shrink-0" />

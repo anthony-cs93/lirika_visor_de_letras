@@ -68,7 +68,15 @@ async function initDb() {
   } catch {
     // column already exists
   }
-  // Songs the admin picked to preload into the guest account, and which of them were already copied
+  // Which master songs each account has added or removed (the starter set is visible unless removed)
+  await db.execute(
+    'CREATE TABLE IF NOT EXISTS user_masters (user_id TEXT NOT NULL, master_id TEXT NOT NULL, state TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (user_id, master_id))'
+  );
+  // Starter songs already copied into each account (non-master ones are copied once)
+  await db.execute(
+    'CREATE TABLE IF NOT EXISTS user_seeded (user_id TEXT NOT NULL, song_id TEXT NOT NULL, PRIMARY KEY (user_id, song_id))'
+  );
+  // Songs the admin picked as the starter set: preloaded into the guest account and every new account, and which of them were already copied
   await db.execute('CREATE TABLE IF NOT EXISTS guest_seed (song_id TEXT PRIMARY KEY)');
   await db.execute('CREATE TABLE IF NOT EXISTS guest_seeded (song_id TEXT PRIMARY KEY)');
   await db.execute('CREATE TABLE IF NOT EXISTS app_flags (key TEXT PRIMARY KEY)');
@@ -248,45 +256,65 @@ async function getCatalogSongs(): Promise<any[]> {
   return [...byId.values()].filter((s) => !s.deletedAt);
 }
 
-// Copies the songs the admin picked into the guest's own catalog; each one is copied only once,
-// so what the guest later edits or deletes is not undone.
-async function seedGuest(userId: string) {
-  const { rows } = await db.execute(
-    'SELECT song_id FROM guest_seed WHERE song_id NOT IN (SELECT song_id FROM guest_seeded)'
-  );
+// The starter set is what the admin picked in the panel. Every account except the admins starts with it:
+// masters arrive as masters (see getSongsFor); the other songs are copied once into the account, so what the
+// account later edits or deletes is not undone (the "Restablecer cancionero" button brings deleted ones back).
+async function seedStarter(user: Me) {
+  if (user.role === 'admin') return;
+  if (user.isGuest) {
+    // Older installs tracked the guest's copies in one global table
+    const flag = await db.execute("SELECT 1 FROM app_flags WHERE key = 'guest_seeded_moved'");
+    if (!flag.rows.length) {
+      await db.execute({ sql: 'INSERT OR IGNORE INTO user_seeded (user_id, song_id) SELECT ?, song_id FROM guest_seeded', args: [user.id] });
+      await db.execute("INSERT OR IGNORE INTO app_flags (key) VALUES ('guest_seeded_moved')");
+    }
+  }
+  const { rows } = await db.execute({
+    sql: 'SELECT song_id FROM guest_seed WHERE song_id NOT IN (SELECT song_id FROM user_seeded WHERE user_id = ?)',
+    args: [user.id],
+  });
   if (!rows.length) return;
-  const pool = new Map((await getCatalogSongs()).map((s) => [String(s.id), s]));
+  const pool = new Map((await getCatalogSongs()).map((x) => [String(x.id), x]));
   const masterIds = new Set((await getMasters()).map((m) => String(m.id)));
-  const now = new Date().toISOString();
+  const own = new Map((await getUserSongs(user.id)).map((x) => [String(x.id), x]));
   const copies: any[] = [];
   for (const r of rows) {
-    // A master the admin picked reaches the guest as a master (see getSongsFor), not as a copy
     if (masterIds.has(String(r.song_id))) continue;
     const song = pool.get(String(r.song_id));
-    if (song && !song.deletedAt) copies.push({ ...song, isFavorite: false, groupIds: [], updatedAt: now });
+    if (!song || song.deletedAt) continue;
+    // A copy that comes back after the account deleted it must be newer than the deletion, whatever the device clock said
+    const prev = Date.parse(own.get(String(r.song_id))?.updatedAt || '') || 0;
+    copies.push({ ...song, isFavorite: false, groupIds: [], updatedAt: new Date(Math.max(Date.now(), prev + 1)).toISOString() });
   }
-  await upsertUserSongs(userId, copies);
+  await upsertUserSongs(user.id, copies);
   await db.batch(
-    rows.map((r) => ({ sql: 'INSERT OR IGNORE INTO guest_seeded (song_id) VALUES (?)', args: [String(r.song_id)] })),
+    rows.map((r) => ({ sql: 'INSERT OR IGNORE INTO user_seeded (user_id, song_id) VALUES (?, ?)', args: [user.id, String(r.song_id)] })),
     'write'
   );
 }
 
+async function getMasterStates(userId: string) {
+  const { rows } = await db.execute({ sql: 'SELECT master_id, state FROM user_masters WHERE user_id = ?', args: [userId] });
+  return new Map(rows.map((r) => [String(r.master_id), String(r.state)]));
+}
+
 async function getSongsFor(user: Me): Promise<any[]> {
-  if (user.isGuest) await seedGuest(user.id);
+  await seedStarter(user);
   const own = await getUserSongs(user.id);
   const masters = await getMasters();
   const masterIds = new Set(masters.filter((m) => !m.deletedAt).map((m) => String(m.id)));
   const ownLive = new Set(own.filter((x) => !x.deletedAt).map((x) => String(x.id)));
   const meta = await getMasterMeta(user.id);
-  const picked = user.isGuest
-    ? new Set((await db.execute('SELECT song_id FROM guest_seed')).rows.map((r) => String(r.song_id)))
-    : new Set<string>();
 
-  // Masters this account has not copied; the favorite/groups on them are this account's own.
-  // The guest account only has the masters it added itself plus the ones the admin picked for it.
+  // Admins see every master. Everyone else sees the starter set plus the masters they added, minus the ones they removed.
+  const starter = new Set((await db.execute('SELECT song_id FROM guest_seed')).rows.map((r) => String(r.song_id)));
+  const states = user.role === 'admin' ? new Map<string, string>() : await getMasterStates(user.id);
+  const visible = (id: string) =>
+    user.role === 'admin' || states.get(id) === 'added' || (states.get(id) !== 'hidden' && starter.has(id));
+
+  // Masters this account has not copied; the favorite/groups on them are this account's own
   const shown = masters
-    .filter((m) => !ownLive.has(String(m.id)) && (!user.isGuest || meta.has(String(m.id)) || picked.has(String(m.id))))
+    .filter((m) => !ownLive.has(String(m.id)) && visible(String(m.id)))
     .map((m) => {
       const mm = meta.get(String(m.id));
       return {
@@ -321,6 +349,25 @@ async function saveSongsFor(user: Me, songs: any[]) {
   }
   const masterSongs = valid.filter((x) => x.isMaster);
   if (!masterSongs.length) return;
+  if (user.role !== 'admin') {
+    // Removing a master only removes it from this account; adding one is an explicit action (the Lirika search)
+    const marks = masterSongs
+      .map((x) => (x.deletedAt ? { id: x.id, state: 'hidden', at: x.deletedAt } : x.userAdded === true ? { id: x.id, state: 'added', at: x.metaUpdatedAt || x.updatedAt } : null))
+      .filter((m): m is { id: string; state: string; at: string } => !!m);
+    if (marks.length) {
+      await db.batch(
+        marks.map((m) => ({
+          sql: `INSERT INTO user_masters (user_id, master_id, state, updated_at) VALUES (?, ?, ?, ?)
+                ON CONFLICT(user_id, master_id) DO UPDATE SET state = excluded.state, updated_at = excluded.updated_at
+                WHERE excluded.updated_at >= user_masters.updated_at`,
+          args: [user.id, String(m.id), m.state, new Date(m.at || 0).toISOString()],
+        })),
+        'write'
+      );
+    }
+    await saveMasterMeta(user.id, masterSongs.filter((x) => !x.deletedAt));
+    return;
+  }
   if (user.role === 'admin') {
     // Admins create and edit masters. A song that becomes a master leaves the admin's own library.
     await upsertMasters(masterSongs.map(masterContent));
@@ -486,6 +533,32 @@ app.get('/api/songs/search', async (req, res) => {
   } catch (err) {
     console.error('Error in general search:', err);
     res.status(500).json({ error: 'No se pudo consultar la base de datos general', results: [] });
+  }
+});
+
+// API: "Restablecer cancionero": brings back the starter songs this account removed. Nothing the account
+// created or edited is touched, and nothing is removed.
+app.post('/api/songs/restore-starter', async (req, res) => {
+  try {
+    await dbReady;
+    const user = me(req);
+    if (user.role === 'admin') return res.status(400).json({ error: 'Los administradores ven todas las canciones maestras' });
+    const hidden = await db.execute({ sql: "DELETE FROM user_masters WHERE user_id = ? AND state = 'hidden'", args: [user.id] });
+    // Non-master starter songs this account no longer has (never copied or deleted) are copied again on the next pull
+    const starter = (await db.execute('SELECT song_id FROM guest_seed')).rows.map((r) => String(r.song_id));
+    const masterIds = new Set((await getMasters()).map((m) => String(m.id)));
+    const own = new Map((await getUserSongs(user.id)).map((x) => [String(x.id), x]));
+    const again = starter.filter((id) => !masterIds.has(id) && (!own.has(id) || own.get(id).deletedAt));
+    if (again.length) {
+      await db.batch(
+        again.map((id) => ({ sql: 'DELETE FROM user_seeded WHERE user_id = ? AND song_id = ?', args: [user.id, id] })),
+        'write'
+      );
+    }
+    res.json({ success: true, restored: Number(hidden.rowsAffected || 0) + again.length });
+  } catch (err) {
+    console.error('Error restoring starter songs:', err);
+    res.status(500).json({ error: 'No se pudo restablecer el cancionero' });
   }
 });
 
