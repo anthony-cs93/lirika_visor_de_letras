@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Search,
   Plus,
@@ -50,6 +51,7 @@ import { apiFetch } from '../utils/auth';
 import { LogoHorizontal } from './Logo';
 import { Link2 } from 'lucide-react';
 import { visibleLinks } from '../utils/links';
+import { PlatformIcon } from './PlatformIcon';
 
 // Where the user was in the list (tab and scroll): the list unmounts while a song is open,
 // so this lets "back" return to the same group instead of the whole library.
@@ -78,7 +80,14 @@ export function SongList({
   const [songs, setSongs] = useState<Song[]>(getLocalSongs());
   const [searchQuery, setSearchQuery] = useState('');
   const [pendingDelete, setPendingDelete] = useState<Song | null>(null);
-  const [linksOpenId, setLinksOpenId] = useState<string | null>(null); // song whose link buttons are showing
+  // Popover with the platform icons of one song; fixed to the screen at the button that opened it
+  const [linksPop, setLinksPop] = useState<{ id: string; left: number; top?: number; bottom?: number } | null>(null);
+  useEffect(() => {
+    if (!linksPop) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setLinksPop(null);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [linksPop]);
   const { guard, pinDialog } = usePinGuard();
   const { user } = useAuth();
   // Message floating above the heart that was just pressed (n makes each press a fresh animation)
@@ -529,6 +538,36 @@ export function SongList({
         ]}
       />
 
+      {linksPop &&
+        createPortal(
+          <>
+            <div className="fixed inset-0 z-[80]" onClick={() => setLinksPop(null)} onContextMenu={(e) => { e.preventDefault(); setLinksPop(null); }} />
+            <div
+              role="menu"
+              aria-label="Enlaces de referencia"
+              style={{ left: linksPop.left, top: linksPop.top, bottom: linksPop.bottom }}
+              className="fixed z-[81] flex items-center gap-0.5 p-[2px] rounded-full bg-[color:var(--sheet)] border border-white/[0.18] backdrop-blur-2xl shadow-[0_8px_24px_rgba(0,0,0,0.4)] animate-[sheetIn_0.18s_cubic-bezier(0.2,0.9,0.3,1)]"
+            >
+              {visibleLinks(songs.find((x) => x.id === linksPop.id)?.links).map((l) => (
+                <a
+                  key={l.key}
+                  role="menuitem"
+                  href={l.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => setLinksPop(null)}
+                  className="w-7 h-7 inline-flex items-center justify-center rounded-full hover:bg-white/[0.14] active:scale-90 transition"
+                  title={`Abrir en ${l.label}`}
+                  aria-label={`Abrir en ${l.label}`}
+                >
+                  <PlatformIcon platform={l.key} size={15} />
+                </a>
+              ))}
+            </div>
+          </>,
+          document.body
+        )}
+
       {/* Aurora background */}
       <div className="pointer-events-none absolute -left-28 -top-16 w-[340px] h-[340px] rounded-full opacity-40 blur-[80px] bg-[oklch(0.72_0.15_70)]" />
       <div className="pointer-events-none absolute -right-36 top-[300px] w-[360px] h-[360px] rounded-full opacity-40 blur-[90px] bg-[oklch(0.62_0.17_300)]" />
@@ -683,15 +722,15 @@ export function SongList({
         )}
 
         {activeGroup && !isSearchingOnline && (
-          <div className="flex items-center gap-4 px-6 -mt-1 pb-2 text-xs font-bold opacity-70 shrink-0">
-            <button onClick={() => openGroupDialog({ mode: 'rename', group: activeGroup })} className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-6 -mt-1 pb-2 text-xs font-bold opacity-70 shrink-0">
+            <button onClick={() => openGroupDialog({ mode: 'rename', group: activeGroup })} className="flex items-center gap-1.5 whitespace-nowrap">
               <Pencil className="w-3.5 h-3.5" /> Renombrar
             </button>
-            <button onClick={() => setDeleteGroupTarget(activeGroup)} className="flex items-center gap-1.5 text-[oklch(0.75_0.17_10)]">
+            <button onClick={() => setDeleteGroupTarget(activeGroup)} className="flex items-center gap-1.5 whitespace-nowrap text-[oklch(0.75_0.17_10)]">
               <Trash2 className="w-3.5 h-3.5" /> Eliminar grupo
             </button>
             {canReorder && filteredSongs.length > 1 && (
-              <span className="ml-auto flex items-center gap-1 text-[11px] font-semibold opacity-60">
+              <span className="ml-auto flex items-center gap-1 whitespace-nowrap text-[11px] font-semibold opacity-60">
                 <GripVertical className="w-3.5 h-3.5" /> Arrastra para ordenar
               </span>
             )}
@@ -703,6 +742,7 @@ export function SongList({
           ref={listRef}
           onScroll={(e) => {
             if (listMemory) listMemory.scroll = e.currentTarget.scrollTop;
+            if (linksPop) setLinksPop(null);
           }}
           className={`flex-1 overflow-y-auto no-scrollbar px-5 pt-6 pb-32 space-y-2 [mask-image:linear-gradient(transparent,#000_22px)] ${
             drag ? 'touch-none' : ''
@@ -817,130 +857,133 @@ export function SongList({
                   }}
                   style={dragStyle}
                   onClick={() => onSelectSong(song)}
-                  className={`group py-2 pl-2.5 pr-1 rounded-[22px] flex items-center gap-2.5 cursor-pointer ${
+                  className={`group py-2 pl-2.5 pr-1 rounded-[22px] flex flex-col cursor-pointer ${
                     drag ? (song.id === drag.id ? 'shadow-[0_14px_36px_rgba(0,0,0,0.45)] ring-1 ring-[oklch(0.82_0.14_75_/_0.6)]' : '') : 'transition-all hover:bg-white/10 active:scale-[0.99]'
                   } ${GLASS}`}
                 >
-                  {canReorder && (
-                    <button
-                      type="button"
-                      aria-label={`Reordenar ${song.title}`}
-                      title="Arrastra para reordenar"
-                      onClick={(e) => e.stopPropagation()}
-                      onPointerDown={(e) => handleDragStart(e, song.id)}
-                      onPointerMove={handleDragMove}
-                      onPointerUp={() => handleDragEnd(true)}
-                      onPointerCancel={() => handleDragEnd(false)}
-                      onContextMenu={(e) => e.preventDefault()}
-                      className="w-6 h-11 -mr-1 shrink-0 flex items-center justify-center touch-none cursor-grab active:cursor-grabbing text-[color:var(--ink)]/35 hover:text-[color:var(--ink)]/70"
-                    >
-                      <GripVertical className="w-[18px] h-[18px]" />
-                    </button>
-                  )}
-                  <div
-                    className="w-11 h-11 rounded-[14px] shrink-0 flex items-center justify-center text-lg font-extrabold text-[#0a0a0e]/75"
-                    style={{ background: artGradient(song.title) }}
-                  >
-                    {song.title.trim()[0]?.toUpperCase() || '♪'}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <h3 className="font-bold text-[15px] leading-tight tracking-tight truncate">{song.title}</h3>
-                    <p className="text-xs opacity-60 truncate mt-px">{song.artist}</p>
-                    <div className="flex items-center gap-1.5 mt-1 min-w-0">
-                      <span
-                        className="shrink-0 px-2 py-px rounded-full text-[10px] font-semibold tabular-nums bg-white/[0.06] border border-white/[0.08] text-[color:var(--ink)]/55"
-                        title={`${sectionCount} ${sectionCount === 1 ? 'sección' : 'secciones'}`}
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    {canReorder && (
+                      <button
+                        type="button"
+                        aria-label={`Reordenar ${song.title}`}
+                        title="Arrastra para reordenar"
+                        onClick={(e) => e.stopPropagation()}
+                        onPointerDown={(e) => handleDragStart(e, song.id)}
+                        onPointerMove={handleDragMove}
+                        onPointerUp={() => handleDragEnd(true)}
+                        onPointerCancel={() => handleDragEnd(false)}
+                        onContextMenu={(e) => e.preventDefault()}
+                        className="w-6 h-11 -mr-1 shrink-0 flex items-center justify-center touch-none cursor-grab active:cursor-grabbing text-[color:var(--ink)]/35 hover:text-[color:var(--ink)]/70"
                       >
-                        {sectionCount} {sectionCount === 1 ? 'sección' : 'secciones'}
-                      </span>
-                      {song.isMaster && (
-                        <span className="shrink-0 px-2 py-px rounded-full text-[10px] font-semibold master-badge" title="Canción maestra: la comparten todas las cuentas">
-                          Maestra
-                        </span>
-                      )}
-                      {!song.isMaster && song.masterId && (
-                        <span className="shrink-0 px-2 py-px rounded-full text-[10px] font-semibold copy-badge" title="Tu copia personal de una canción maestra">
-                          Mi copia
-                        </span>
-                      )}
-                      {song.key && (
-                        <span
-                          className="shrink-0 px-2 py-px rounded-full text-[10px] font-semibold key-badge"
-                          title={`Tonalidad ${song.key}`}
-                        >
-                          Tono {song.key}
-                        </span>
-                      )}
-                      {meta && <span className="text-[11px] opacity-50 truncate">{meta}</span>}
-                    </div>
-                    {songLinks.length > 0 && linksOpenId === song.id && (
-                      <div className="flex flex-wrap gap-1 mt-1.5">
-                        {songLinks.map((l) => (
-                          <a
-                            key={l.key}
-                            href={l.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            className="px-2 h-6 inline-flex items-center rounded-full text-[10px] font-bold border active:scale-95 transition-transform"
-                            style={{ color: l.color, background: `${l.color}1f`, borderColor: `${l.color}55` }}
-                            title={`Abrir en ${l.label}`}
-                          >
-                            {l.short}
-                          </a>
-                        ))}
-                      </div>
+                        <GripVertical className="w-[18px] h-[18px]" />
+                      </button>
                     )}
-                  </div>
-                  <div className="flex items-center shrink-0">
-                    {songLinks.length > 0 && (
+                    <div
+                      className="w-11 h-11 rounded-[14px] shrink-0 flex items-center justify-center text-lg font-extrabold text-[#0a0a0e]/75"
+                      style={{ background: artGradient(song.title) }}
+                    >
+                      {song.title.trim()[0]?.toUpperCase() || '♪'}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-bold text-[15px] leading-tight tracking-tight truncate">{song.title}</h3>
+                      <p className="text-xs opacity-60 truncate mt-px">{song.artist}</p>
+                    </div>
+                    <div className="grid grid-cols-2 place-items-center shrink-0">
+                      {songLinks.length > 0 ? (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (linksPop?.id === song.id) return setLinksPop(null);
+                            const r = e.currentTarget.getBoundingClientRect();
+                            // Above the button, growing to the right; it only shifts left as far as needed to stay on screen,
+                            // and drops below the button when there is no room above
+                            const width = songLinks.length * 28 + (songLinks.length - 1) * 2 + 6;
+                            const up = r.top >= 56;
+                            setLinksPop({
+                              id: song.id,
+                              left: Math.max(8, Math.min(r.left, window.innerWidth - width - 8)),
+                              // Anchored by its bottom edge when above, so the entrance animation (which uses transform) never fights the position
+                              ...(up ? { bottom: window.innerHeight - r.top + 2 } : { top: r.bottom + 2 }),
+                            });
+                          }}
+                          className={`w-7 h-6 rounded-full flex items-center justify-center transition-colors ${
+                            linksPop?.id === song.id ? 'text-[oklch(0.82_0.14_75)]' : 'text-[color:var(--ink)]/40 hover:text-[color:var(--ink)]'
+                          }`}
+                          title="Enlaces de referencia"
+                          aria-haspopup="true"
+                          aria-expanded={linksPop?.id === song.id}
+                        >
+                          <Link2 className="w-[15px] h-[15px]" />
+                        </button>
+                      ) : (
+                        <span className="w-7 h-6" aria-hidden="true" />
+                      )}
+                      <button
+                        onClick={(e) => handleToggleFav(e, song.id)}
+                        className={`relative w-7 h-6 rounded-full flex items-center justify-center transition-colors ${
+                          song.isFavorite ? 'text-[oklch(0.75_0.17_10)]' : 'text-[color:var(--ink)]/40 hover:text-[color:var(--ink)]'
+                        }`}
+                        title="Marcar como favorita"
+                      >
+                        <Heart className={`w-[17px] h-[17px] ${song.isFavorite ? 'fill-current' : ''}`} />
+                        {burst?.id === song.id && <FavBurst key={burst.n} text={burst.text} />}
+                      </button>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          setLinksOpenId(linksOpenId === song.id ? null : song.id);
+                          setPickerSongId(song.id);
                         }}
-                        className={`w-7 h-8 rounded-full flex items-center justify-center transition-colors ${
-                          linksOpenId === song.id ? 'text-[oklch(0.82_0.14_75)]' : 'text-[color:var(--ink)]/40 hover:text-[color:var(--ink)]'
+                        className={`w-7 h-6 rounded-full flex items-center justify-center transition-colors ${
+                          song.groupIds?.some((id) => groups.some((g) => g.id === id))
+                            ? 'text-[oklch(0.82_0.14_75)]'
+                            : 'text-[color:var(--ink)]/30 hover:text-[color:var(--ink)]'
                         }`}
-                        title="Enlaces de referencia"
-                        aria-expanded={linksOpenId === song.id}
+                        title="Agregar a grupos"
                       >
-                        <Link2 className="w-[15px] h-[15px]" />
+                        <FolderPlus className="w-[14px] h-[14px]" />
                       </button>
+                      {canDelete ? (
+                        <button
+                          onClick={(e) => handleDeleteSong(e, song.id)}
+                          className="w-7 h-6 rounded-full flex items-center justify-center text-[color:var(--ink)]/30 hover:text-[oklch(0.75_0.17_10)] transition-colors"
+                          title="Eliminar canción"
+                        >
+                          <Trash2 className="w-[14px] h-[14px]" />
+                        </button>
+                      ) : (
+                        <span className="w-7 h-6" aria-hidden="true" />
+                      )}
+                    </div>
+                  </div>
+                  <div
+                  className="flex flex-nowrap items-center gap-1 mt-1 overflow-hidden whitespace-nowrap"
+                  style={{ paddingLeft: canReorder ? 30 : 0 }}
+                >
+                    <span
+                      className="shrink-0 px-1.5 py-px rounded-full text-[10px] font-semibold tabular-nums bg-white/[0.06] border border-white/[0.08] text-[color:var(--ink)]/55"
+                      title={`${sectionCount} ${sectionCount === 1 ? 'sección' : 'secciones'}`}
+                    >
+                      {sectionCount} {sectionCount === 1 ? 'sección' : 'secciones'}
+                    </span>
+                    {song.isMaster && (
+                      <span className="shrink-0 px-1.5 py-px rounded-full text-[10px] font-semibold master-badge" title="Canción maestra: la comparten todas las cuentas">
+                        Maestra
+                      </span>
                     )}
-                    <button
-                      onClick={(e) => handleToggleFav(e, song.id)}
-                      className={`relative w-7 h-8 rounded-full flex items-center justify-center transition-colors ${
-                        song.isFavorite ? 'text-[oklch(0.75_0.17_10)]' : 'text-[color:var(--ink)]/40 hover:text-[color:var(--ink)]'
-                      }`}
-                      title="Marcar como favorita"
-                    >
-                      <Heart className={`w-[17px] h-[17px] ${song.isFavorite ? 'fill-current' : ''}`} />
-                      {burst?.id === song.id && <FavBurst key={burst.n} text={burst.text} />}
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setPickerSongId(song.id);
-                      }}
-                      className={`w-7 h-8 rounded-full flex items-center justify-center transition-colors ${
-                        song.groupIds?.some((id) => groups.some((g) => g.id === id))
-                          ? 'text-[oklch(0.82_0.14_75)]'
-                          : 'text-[color:var(--ink)]/30 hover:text-[color:var(--ink)]'
-                      }`}
-                      title="Agregar a grupos"
-                    >
-                      <FolderPlus className="w-[14px] h-[14px]" />
-                    </button>
-                    {canDelete && (
-                      <button
-                        onClick={(e) => handleDeleteSong(e, song.id)}
-                        className="w-7 h-8 rounded-full flex items-center justify-center text-[color:var(--ink)]/30 hover:text-[oklch(0.75_0.17_10)] transition-colors"
-                        title="Eliminar canción"
+                    {!song.isMaster && song.masterId && (
+                      <span className="shrink-0 px-1.5 py-px rounded-full text-[10px] font-semibold copy-badge" title="Tu copia personal de una canción maestra">
+                        Mi copia
+                      </span>
+                    )}
+                    {song.key && (
+                      <span
+                        className="shrink-0 px-1.5 py-px rounded-full text-[10px] font-semibold key-badge"
+                        title={`Tonalidad ${song.key}`}
                       >
-                        <Trash2 className="w-[14px] h-[14px]" />
-                      </button>
+                        Tono {song.key}
+                      </span>
                     )}
+                    {meta && <span className="min-w-0 text-[11px] opacity-50 truncate">{meta}</span>}
                   </div>
                 </div>
               );

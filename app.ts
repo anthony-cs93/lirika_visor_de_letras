@@ -138,7 +138,7 @@ async function upsertUserSongs(userId: string, songs: any[]) {
   );
 }
 
-const LINK_KEYS = ['youtube', 'spotify', 'appleMusic', 'ytMusic', 'deezer', 'soundcloud'];
+const LINK_KEYS = ['youtube', 'spotify', 'appleMusic', 'soundcloud'];
 
 // Reference links: only known platforms and only http(s) addresses are ever stored
 function cleanLinks(links: any): Record<string, string> | undefined {

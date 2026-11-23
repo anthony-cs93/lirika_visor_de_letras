@@ -1,20 +1,19 @@
 // Reference links of a song: one per music platform.
-export type LinkPlatform = 'youtube' | 'spotify' | 'appleMusic' | 'ytMusic' | 'deezer' | 'soundcloud';
+import { PLATFORM_ICONS } from './platformIcons';
+
+export type LinkPlatform = 'youtube' | 'spotify' | 'appleMusic' | 'soundcloud';
 export type SongLinks = Partial<Record<LinkPlatform, string>>;
 
 export const LINK_PLATFORMS: {
   key: LinkPlatform;
   label: string;
-  short: string; // for the little buttons in the list
   hosts: string[]; // accepted domains (and their subdomains)
-  color: string; // brand-ish colour (text on tinted background)
+  color: string; // official brand colour of the glyph
 }[] = [
-  { key: 'youtube', label: 'YouTube', short: 'YouTube', hosts: ['youtube.com', 'youtu.be'], color: '#ff4d4d' },
-  { key: 'spotify', label: 'Spotify', short: 'Spotify', hosts: ['spotify.com', 'spotify.link'], color: '#1ed760' },
-  { key: 'appleMusic', label: 'Apple Music', short: 'Apple', hosts: ['music.apple.com', 'itunes.apple.com'], color: '#fa5c7c' },
-  { key: 'ytMusic', label: 'YouTube Music', short: 'YT Music', hosts: ['music.youtube.com'], color: '#ff7a3d' },
-  { key: 'deezer', label: 'Deezer', short: 'Deezer', hosts: ['deezer.com', 'deezer.page.link', 'link.deezer.com'], color: '#a259ff' },
-  { key: 'soundcloud', label: 'SoundCloud', short: 'SoundCloud', hosts: ['soundcloud.com', 'on.soundcloud.com'], color: '#ff8a1f' },
+  { key: 'youtube', label: 'YouTube', hosts: ['youtube.com', 'youtu.be'], color: PLATFORM_ICONS.youtube.color },
+  { key: 'spotify', label: 'Spotify', hosts: ['spotify.com', 'spotify.link'], color: PLATFORM_ICONS.spotify.color },
+  { key: 'appleMusic', label: 'Apple Music', hosts: ['music.apple.com', 'itunes.apple.com'], color: PLATFORM_ICONS.appleMusic.color },
+  { key: 'soundcloud', label: 'SoundCloud', hosts: ['soundcloud.com', 'on.soundcloud.com'], color: PLATFORM_ICONS.soundcloud.color },
 ];
 
 /** Only http(s) links are ever rendered or stored (never javascript:, data:, ...). */

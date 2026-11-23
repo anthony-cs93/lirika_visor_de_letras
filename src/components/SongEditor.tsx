@@ -40,6 +40,7 @@ import {
 } from '../utils/lyricsParser';
 import { upsertSong } from '../utils/storage';
 import { Link2, ShieldCheck, Copy } from 'lucide-react';
+import { PlatformIcon } from './PlatformIcon';
 import { useAuth } from './AuthGate';
 import { LINK_PLATFORMS, checkLink, visibleLinks, LinkPlatform } from '../utils/links';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -744,7 +745,7 @@ export function SongEditor({ song, initialBlock = 0, onBack, onSaved }: SongEdit
                 {LINK_PLATFORMS.map((p) => (
                   <label key={p.key} className="flex items-center gap-2">
                     <span className="w-[88px] shrink-0 flex items-center gap-1.5 text-zinc-400">
-                      <span className="w-2 h-2 rounded-full shrink-0" style={{ background: p.color }} />
+                      <PlatformIcon platform={p.key} size={14} />
                       {p.label}
                     </span>
                     <input
