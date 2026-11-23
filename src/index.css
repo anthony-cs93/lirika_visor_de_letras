@@ -46,6 +46,8 @@ html.live-mode, html.live-mode body { overscroll-behavior-y: none; }
 .light .opacity-50 { opacity: 0.72; }
 
 /* Repeat count (x2) over a section chip */
+.key-badge { background: oklch(0.82 0.14 75 / 0.16); border: 1px solid oklch(0.82 0.14 75 / 0.38); color: oklch(0.87 0.12 78); }
+.light .key-badge { background: oklch(0.82 0.14 75 / 0.22); border-color: oklch(0.7 0.14 70 / 0.5); color: #8a4b00; }
 .repeat-badge { background: #17130a; color: oklch(0.85 0.13 75); border-color: oklch(0.82 0.14 75); }
 .light .repeat-badge { background: #a35a06; color: #fff; border-color: var(--page); }
 

@@ -795,12 +795,7 @@ export function SongList({
                 }
               }
               const sectionCount = parseLyricsToBlocks(song.lyrics).length;
-              const meta = [
-                song.key ? `Tono ${song.key}` : '',
-                song.source === 'upload' ? 'Subida' : '',
-              ]
-                .filter(Boolean)
-                .join(' · ');
+              const meta = song.source === 'upload' ? 'Subida' : '';
 
               return (
                 <div
@@ -847,6 +842,14 @@ export function SongList({
                       >
                         {sectionCount} {sectionCount === 1 ? 'sección' : 'secciones'}
                       </span>
+                      {song.key && (
+                        <span
+                          className="shrink-0 px-2 py-px rounded-full text-[10px] font-semibold key-badge"
+                          title={`Tonalidad ${song.key}`}
+                        >
+                          Tono {song.key}
+                        </span>
+                      )}
                       {meta && <span className="text-[11px] opacity-50 truncate">{meta}</span>}
                     </div>
                   </div>

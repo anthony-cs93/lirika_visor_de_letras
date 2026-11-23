@@ -5,10 +5,10 @@ export const SECTION_DEFINITIONS: { type: SectionType; label: string; badge: str
   { type: 'verse', label: 'Verso', badge: 'Verso' },
   { type: 'prechorus', label: 'Pre-Coro', badge: 'Pre-Coro' },
   { type: 'chorus', label: 'Coro', badge: 'Coro' },
-  { type: 'repeat', label: 'Repetición', badge: 'Rp' },
+  { type: 'repeat', label: 'Repetición', badge: 'Repetición' },
   { type: 'bridge', label: 'Puente', badge: 'Puente' },
   { type: 'interlude', label: 'Interludio', badge: 'Interludio' },
-  { type: 'solo', label: 'Instrumental', badge: 'Solo' },
+  { type: 'solo', label: 'Solo', badge: 'Solo' },
   { type: 'outro', label: 'Outro', badge: 'Final' },
   // Wildcard: the visible name is free text and the badge shows its first letters
   { type: 'custom', label: 'Otro', badge: 'Otro' },
@@ -80,7 +80,8 @@ export function detectSectionType(raw: string): { type: SectionType; cleanLabel:
     return { type: 'interlude', cleanLabel: trimmed || 'Interludio' };
   }
   if (lower.startsWith('solo') || lower.startsWith('instrumental')) {
-    return { type: 'solo', cleanLabel: 'Instrumental' };
+    // "Instrumental" (the old name) is shown as "Solo"; a numbered "Solo 2" keeps its number
+    return { type: 'solo', cleanLabel: lower.startsWith('solo') ? trimmed : 'Solo' };
   }
   if (lower.startsWith('outro') || lower.startsWith('final')) {
     return { type: 'outro', cleanLabel: 'Outro' };
